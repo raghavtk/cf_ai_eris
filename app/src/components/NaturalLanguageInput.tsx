@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { Paper, Stack, TextField, Button, Typography, Divider, Chip, Box } from '@mui/material'
+import { Paper, Stack, TextField, Button, Typography } from '@mui/material'
 import { aiService } from '../services/aiService'
-import { taskService } from '../services/taskService'
 
 type ParsedTask = {
   title?: string
@@ -20,10 +19,7 @@ type Props = {
 
 const NaturalLanguageInput = ({ onSavePreview }: Props) => {
   const [input, setInput] = useState('')
-  const [preview, setPreview] = useState<ParsedTask | null>(null)
-  const [history, setHistory] = useState<ParsedTask[]>([])
   const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
@@ -34,40 +30,13 @@ const NaturalLanguageInput = ({ onSavePreview }: Props) => {
     try {
       const res = await aiService.parseTask(input)
       const parsed = typeof res === 'string' ? JSON.parse(res) : res.parsed || res
-      setPreview(parsed)
-      setHistory((h) => [...h.slice(-4), parsed])
+      setSuccess('Parsed task — opening form')
+      onSavePreview?.(parsed)
     } catch (e: any) {
       setError(e?.message || 'Parse failed')
     } finally {
       setLoading(false)
     }
-  }
-
-  const handleUsePreview = () => {
-    if (!preview) return
-    const payload = {
-      title: preview.title || 'Untitled task',
-      description: preview.description || '',
-      priority: (preview.priority as any) || 'medium',
-      status: 'pending',
-      category: (preview.category as any) || 'work',
-      subcategory: preview.subcategory || 'Courses',
-      due_date: preview.due_date || '',
-      estimated_duration: typeof preview.estimated_duration === 'number' ? preview.estimated_duration : 0,
-      note: preview.note ?? '',
-    }
-
-    setSaving(true)
-    setError(null)
-    setSuccess(null)
-    taskService
-      .create(payload as any)
-      .then(() => {
-        setSuccess('Task created from preview')
-        onSavePreview?.(preview)
-      })
-      .catch((e) => setError(e?.message || 'Failed to create task'))
-      .finally(() => setSaving(false))
   }
 
   return (
@@ -76,7 +45,7 @@ const NaturalLanguageInput = ({ onSavePreview }: Props) => {
         <TextField
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder='e.g., Finish the report by Friday, high priority'
+          placeholder='Add a task quickly, e.g., Finish the report by Friday, high priority'
           fullWidth
           InputProps={{
             sx: {
@@ -108,51 +77,10 @@ const NaturalLanguageInput = ({ onSavePreview }: Props) => {
           >
             Clear
           </Button>
-          <Button
-            variant='outlined'
-            onClick={handleUsePreview}
-            disabled={!preview || loading || saving}
-            sx={{ textTransform: 'none', color: '#e5e7eb', borderColor: '#e5e7eb' }}
-          >
-            {saving ? 'Saving...' : 'Use Preview'}
-          </Button>
         </Stack>
 
         {error && <Typography color='error'>{error}</Typography>}
         {success && <Typography color='success.main'>{success}</Typography>}
-
-        {preview && (
-          <Box sx={{ width: '100%', bgcolor: '#0f172a', p: 2, borderRadius: 2, border: '1px solid #bdc0c4' }}>
-            <Typography variant='subtitle1' sx={{ mb: 1 }}>
-              Parsed Preview
-            </Typography>
-            <Stack spacing={0.5} sx={{ color: '#cbd5e1', fontSize: 14 }}>
-              <span>Title: {preview.title}</span>
-              <span>Description: {preview.description}</span>
-              <span>Priority: {preview.priority}</span>
-              <span>Due Date: {preview.due_date}</span>
-              <span>Category: {preview.category}</span>
-              <span>Subcategory: {preview.subcategory}</span>
-              <span>Est. Duration: {preview.estimated_duration}</span>
-            </Stack>
-          </Box>
-        )}
-
-        {history.length > 0 && (
-          <>
-            <Divider sx={{ width: '100%', borderColor: '#1f2937' }}>Recent Parses</Divider>
-            <Stack direction='row' spacing={1} flexWrap='wrap' justifyContent='center'>
-              {history.slice().reverse().map((h, idx) => (
-                <Chip
-                  key={idx}
-                  label={h.title || 'Untitled'}
-                  onClick={() => setPreview(h)}
-                  sx={{ bgcolor: '#1f2937', color: '#e5e7eb' }}
-                />
-              ))}
-            </Stack>
-          </>
-        )}
       </Stack>
     </Paper>
   )

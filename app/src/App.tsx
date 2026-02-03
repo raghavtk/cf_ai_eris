@@ -1,6 +1,6 @@
 import './App.css'
 import { useEffect, useState } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, useNavigate } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import Tasks from './pages/Tasks'
 import ViewTasks from './pages/ViewTasks'
@@ -12,6 +12,7 @@ import { taskService } from './services/taskService'
 function Home() {
   const [tasks, setTasks] = useState<TaskRow[]>([])
   const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
 
   useEffect(() => {
     taskService
@@ -53,8 +54,7 @@ function Home() {
   }, [])
 
   const handlePreview = (parsed: any) => {
-    // You can later pipe this to a pre-fill modal; for now, just log.
-    console.log('Parsed preview', parsed)
+    navigate('/tasks', { state: { parsed } })
   }
 
   return (
@@ -74,7 +74,7 @@ function Home() {
         </div>
       </div>
 
-      <div style={{ width: '100%' }}>
+      <div style={{ width: '100%', maxWidth: '1300px', margin: '0 auto' }}>
         {loading ? (
           <p className='text-gray-300' style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>Loading tasks...</p>
         ) : (

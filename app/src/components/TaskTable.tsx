@@ -175,7 +175,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
       await Promise.all(
         selectedTasks.map(async (t) => {
           const res = await aiService.categorizeTask({ title: t.title, description: t.description })
-          const category = res.category ?? res.category_label ?? t.category
+          const category = (res.category ?? res.category_label ?? t.category ?? 'work')?.toLowerCase()
           const subcategory = res.subcategory ?? res.sub_category ?? t.subcategory
           await taskService.update(t.id, { category, subcategory } as any)
         }),
@@ -197,7 +197,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
       await Promise.all(
         selectedTasks.map(async (t) => {
           const res = await aiService.suggestPriority({ title: t.title, description: t.description, due_date: t.dueDate })
-          const priority = res.priority ?? res.priority_label ?? res.suggestion ?? t.priority
+          const priority = (res.priority ?? res.priority_label ?? res.suggestion ?? t.priority ?? 'medium')?.toLowerCase()
           await taskService.update(t.id, { priority } as any)
         }),
       )
@@ -468,10 +468,15 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
                         <Button
                           size='small'
                           variant='contained'
-                          color='secondary'
                           onClick={() => startEdit(row)}
                           disabled={!isSelected || busy}
-                          sx={{ textTransform: 'none', fontWeight: 600 }}
+                          sx={{
+                            textTransform: 'none',
+                            fontWeight: 600,
+                            bgcolor: '#2563eb',
+                            color: '#f8fafc',
+                            '&:hover': { bgcolor: '#1d4ed8' },
+                          }}
                         >
                           Edit
                         </Button>

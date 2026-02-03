@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent, ChangeEvent } from 'react'
 import {
   Box,
@@ -15,7 +15,7 @@ import {
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material'
 import { taskService } from '../services/taskService'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import NaturalLanguageInput from '../components/NaturalLanguageInput'
 
 type Category = 'work' | 'personal' | 'other'
@@ -74,6 +74,7 @@ const labelSx = { color: '#cbd5e1', '&.Mui-focused': { color: '#e5e7eb' } }
 const Tasks = () => {
   const [form, setForm] = useState<TaskForm>(initialState)
   const navigate = useNavigate()
+  const location = useLocation()
 
   const handleChange =
     (field: keyof TaskForm) => (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -117,12 +118,14 @@ const Tasks = () => {
   const handleReset = () => setForm(initialState)
 
   const handleParsedPreview = (parsed: ParsedTask) => {
+    const normCategory = parsed.category?.toLowerCase() as Category | undefined
+    const normPriority = parsed.priority?.toLowerCase() as Priority | undefined
     setForm((prev) => ({
       ...prev,
       title: parsed.title ?? prev.title,
       description: parsed.description ?? prev.description,
-      priority: (parsed.priority as Priority) ?? prev.priority,
-      category: (parsed.category as Category) ?? prev.category,
+      priority: normPriority ?? prev.priority,
+      category: normCategory ?? prev.category,
       subcategory: parsed.subcategory ?? prev.subcategory,
       dueDate: parsed.due_date ?? prev.dueDate,
       estimatedDuration:
@@ -132,6 +135,14 @@ const Tasks = () => {
       note: parsed.note ?? prev.note,
     }))
   }
+
+  // If navigated from Home with parsed state, hydrate the form once
+  useEffect(() => {
+    const parsed = (location.state as any)?.parsed as ParsedTask | undefined
+    if (parsed) {
+      handleParsedPreview(parsed)
+    }
+  }, [location.state])
 
   return (
     <Box sx={{ bgcolor: '#0f172a', minHeight: 'calc(100vh - 80px)', py: 4 }}>
@@ -264,10 +275,11 @@ const Tasks = () => {
               />
 
                 <Stack direction='row' spacing={2} justifyContent='flex-end'>
-                  <Button variant='outlined' color='inherit' onClick={handleReset} sx={{ borderColor: '#9ca3af', color: '#e5e7eb' }}>
+                  <Button variant='outlined' color='inherit' onClick={handleReset} sx={{ textTransform: 'none',  letterSpacing: '0.05em', borderColor: '#9ca3af', color: '#e5e7eb' }}>
                     Reset
                   </Button>
-                  <Button variant='contained' color='primary' type='submit' sx={{ px: 4 }}>
+                  <Button variant='contained' color='primary' type='submit' 
+                      sx={{ textTransform: 'none', fontWeight: 600, letterSpacing: '0.05em', px: 4 }}>
                     Create Task
                   </Button>
                 </Stack>
