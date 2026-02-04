@@ -65,6 +65,56 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
     note: t.note,
   })
 
+  const pickMatch = (values: Array<unknown>, pattern: RegExp) => {
+    for (const value of values) {
+      if (typeof value === 'string') {
+        const match = value.match(pattern)
+        if (match?.[0]) return match[0].toLowerCase()
+      }
+    }
+    return null
+  }
+
+  const normalizePriority = (res: any, fallback: TaskRow['priority']) =>
+    (pickMatch([res?.priority, res?.priority_label, res?.suggestion, res?.raw], /high|medium|low/i) as TaskRow['priority']) ||
+    fallback
+
+  const normalizeCategory = (res: any, fallback: TaskRow['category']) =>
+    (pickMatch([res?.category, res?.category_label, res?.raw], /work|personal|other/i) as TaskRow['category']) || fallback
+
+  const normalizeSubcategory = (res: any, fallback: string) => {
+    const direct = res?.subcategory ?? res?.sub_category
+    if (typeof direct === 'string' && direct.trim()) return direct.trim()
+
+    const knownSubcategories = [
+      'Courses',
+      'Internship',
+      'Projects',
+      'Health',
+      'Social',
+      'Finance',
+      'Chores',
+    ]
+
+    const match = pickMatch([res?.raw], new RegExp(knownSubcategories.join('|'), 'i'))
+    if (match) {
+      const canonical = knownSubcategories.find((s) => s.toLowerCase() === match.toLowerCase())
+      return canonical ?? match
+    }
+
+    return fallback
+  }
+
+  const normalizeEstimate = (res: any) => {
+    const candidate = res?.estimated_minutes ?? res?.estimated_duration ?? res?.estimatedMinutes ?? res?.minutes ?? res?.raw
+    if (typeof candidate === 'number' && !Number.isNaN(candidate)) return candidate
+    if (typeof candidate === 'string') {
+      const match = candidate.match(/\d+(?:\.\d+)?/)
+      if (match) return Number(match[0])
+    }
+    return 0
+  }
+
   const refreshRows = async () => {
     const all = await taskService.getAll()
     setRows(all.map(mapApiTask))
@@ -154,7 +204,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
       await Promise.all(
         selectedTasks.map(async (t) => {
           const res = await aiService.estimateDuration({ title: t.title, description: t.description })
-          const est = res.estimated_minutes ?? res.estimated_duration ?? res.estimatedMinutes ?? res.minutes ?? 0
+          const est = normalizeEstimate(res)
           await taskService.update(t.id, { estimated_duration: est } as any)
         }),
       )
@@ -175,8 +225,8 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
       await Promise.all(
         selectedTasks.map(async (t) => {
           const res = await aiService.categorizeTask({ title: t.title, description: t.description })
-          const category = (res.category ?? res.category_label ?? t.category ?? 'work')?.toLowerCase()
-          const subcategory = res.subcategory ?? res.sub_category ?? t.subcategory
+          const category = normalizeCategory(res, t.category ?? 'work')
+          const subcategory = normalizeSubcategory(res, t.subcategory ?? '')
           await taskService.update(t.id, { category, subcategory } as any)
         }),
       )
@@ -197,7 +247,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
       await Promise.all(
         selectedTasks.map(async (t) => {
           const res = await aiService.suggestPriority({ title: t.title, description: t.description, due_date: t.dueDate })
-          const priority = (res.priority ?? res.priority_label ?? res.suggestion ?? t.priority ?? 'medium')?.toLowerCase()
+          const priority = normalizePriority(res, t.priority ?? 'medium')
           await taskService.update(t.id, { priority } as any)
         }),
       )
