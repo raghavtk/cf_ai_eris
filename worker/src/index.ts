@@ -49,9 +49,9 @@ export default {
           id,
           body.title ?? '',
           body.description ?? '',
-          body.priority ?? 'medium',
-          body.status ?? 'pending',
-          body.category ?? 'work',
+          (body.priority ?? 'medium').toString().toLowerCase(),
+          (body.status ?? 'pending').toString().toLowerCase(),
+          (body.category ?? 'work').toString().toLowerCase(),
           body.subcategory ?? 'Courses',
           body.due_date ?? '',
           body.estimated_duration ?? 0,
@@ -80,9 +80,9 @@ export default {
       const merged = {
         title: body.title ?? existing.title ?? '',
         description: body.description ?? existing.description ?? '',
-        priority: body.priority ?? existing.priority ?? 'medium',
-        status: body.status ?? existing.status ?? 'pending',
-        category: body.category ?? existing.category ?? 'work',
+        priority: (body.priority ?? existing.priority ?? 'medium').toString().toLowerCase(),
+        status: (body.status ?? existing.status ?? 'pending').toString().toLowerCase(),
+        category: (body.category ?? existing.category ?? 'work').toString().toLowerCase(),
         subcategory: body.subcategory ?? existing.subcategory ?? 'Courses',
         due_date: body.due_date ?? existing.due_date ?? '',
         estimated_duration:
@@ -119,21 +119,12 @@ export default {
 
     // ----- AI Endpoints -----
     if (path === '/api/ai/parse-task' && request.method === 'POST') {
-      const { input } = (await request.json()) as { input: string }
-      const id = env.COMMAND_PARSER.idFromName('singleton')
-      const stub = env.COMMAND_PARSER.get(id)
-      const res = await stub.fetch('https://do/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input }),
-      })
-      // Ensure we return proper JSON with CORS
-      const text = await res.text()
       try {
-        const payload = JSON.parse(text)
-        return json(payload, res.status)
-      } catch (err) {
-        return json({ error: 'Invalid JSON from DO', raw: text }, 502)
+        const { input } = (await request.json()) as { input: string }
+        const result = await aiService.parseTask(input, env)
+        return json(result)
+      } catch (err: any) {
+        return json({ error: 'parse-task failed', details: err?.message || String(err) }, 502)
       }
     }
 
@@ -141,6 +132,70 @@ export default {
       const task = await request.json()
       const result = await aiService.suggestPriority(task, env)
       return json(result)
+    }
+
+    if (path === '/api/ai/full-assist' && request.method === 'POST') {
+      try {
+        const { input } = (await request.json()) as { input: string }
+
+        // Step 1: Parse NL into structured fields
+        const parsedRaw = await aiService.parseTask(input, env)
+        const parsed = (parsedRaw as any)?.parsed ?? parsedRaw ?? {}
+
+        // Step 2: Fill minimal fields for follow-on prompts
+        const title = parsed.title || 'Untitled task'
+        const description = parsed.description || ''
+        const dueDate = parsed.due_date || ''
+
+        // Step 3: AI enrichments
+        const [priorityRes, categoryRes, estimateRes] = await Promise.all([
+          aiService.suggestPriority({ title, description, due_date: dueDate }, env),
+          aiService.categorizeTask({ title, description }, env),
+          aiService.estimateDuration({ title, description }, env),
+        ])
+
+        const priority = ((priorityRes as any)?.priority || (priorityRes as any)?.priority_label || (priorityRes as any)?.suggestion || parsed.priority || 'medium')
+          .toString()
+          .toLowerCase()
+        const category = ((categoryRes as any)?.category || (categoryRes as any)?.category_label || parsed.category || 'work')
+          .toString()
+          .toLowerCase()
+        const subcategory = (categoryRes as any)?.subcategory || (categoryRes as any)?.sub_category || parsed.subcategory || 'Courses'
+        const estimatedDuration =
+          (estimateRes as any)?.estimated_minutes ||
+          (estimateRes as any)?.estimated_duration ||
+          (estimateRes as any)?.estimatedMinutes ||
+          parsed.estimated_duration ||
+          0
+
+        // Step 4: persist to D1
+        const id = crypto.randomUUID()
+        const now = new Date().toISOString()
+        await env.DB.prepare(
+          `INSERT INTO tasks (id,title,description,priority,status,category,subcategory,due_date,estimated_duration,note,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        )
+          .bind(
+            id,
+            title,
+            description,
+            priority,
+            parsed.status || 'pending',
+            category,
+            subcategory,
+            dueDate,
+            Number(estimatedDuration) || 0,
+            parsed.note || '',
+            now,
+            now,
+          )
+          .run()
+
+        const task = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?').bind(id).first()
+        return json({ task, parsed, priority: priorityRes, category: categoryRes, estimate: estimateRes }, 201)
+      } catch (err: any) {
+        return json({ error: 'full-assist failed', details: err?.message || String(err) }, 502)
+      }
     }
 
     if (path === '/api/ai/estimate-duration' && request.method === 'POST') {

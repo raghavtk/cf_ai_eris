@@ -3,16 +3,16 @@
 Hello, this is a personal productivity assistant, Eris.
 
 ## Project Progress
-- UI foundation: MUI AppBar, centered layout, dark themed task table.
-- Task creation form: MUI-based with category/subcategory, priority/status, note (max 200), reset/save draft.
-- D1 setup: Migration added for tasks, schedule entries, analytics aggregates, AI request logs; wrangler.toml configured with DB and AI bindings.
-- Editable views: Home and View Tasks pages use inline-editable task table (including Note).
-- Next up: Wire frontend to Worker CRUD endpoints and hydrate tables from D1.
-- Named the assistant :D
-- Worker CRUD live: `/api/tasks` supports GET/POST/PUT/DELETE backed by D1.
-- Durable Object: `CommandParserDO` added for NL parsing context.
-- AI endpoints live: `/api/ai/parse-task`, `/api/ai/suggest-priority`, `/api/ai/estimate-duration`, `/api/ai/categorize-task` using Workers AI (@cf/meta/llama-3-8b-instruct).
-- Frontend services: `taskService` consumes Worker API; inline edits and deletion call backend.
-- Tests: Vitest coverage for taskService and TaskTable edit/delete logic.
-- UI polish: Batch AI action buttons styled for off-white contrast; delete action now a solid red contained button.
-- Create page: Natural language quick-add sits under the form and can hydrate fields from parsed previews.
+- UI: Dark MUI layout with inline-editable task table; natural-language Parse jumps straight to the Create Task form with prefilled fields.
+- Forms: Task create form with category/subcategory, priority/status, due date, est. duration, note; reset/create actions.
+- Data: Cloudflare D1 migrations for tasks, schedule entries, analytics aggregates, ai_requests; binding `DB` configured in wrangler.toml.
+- AI endpoints: `/api/ai/parse-task`, `/api/ai/suggest-priority`, `/api/ai/estimate-duration`, `/api/ai/categorize-task`; orchestrated `/api/ai/full-assist` chains parse → priority → categorize → estimate → persist to D1.
+- Model: prefers `@cf/meta/llama-3.3-8b-instruct` with fallback to `@cf/meta/llama-3-8b-instruct`.
+- Services/tests: Frontend services call Worker CRUD/AI; Vitest covers taskService and TaskTable edit/delete flows.
+
+## Durable Object
+- `CommandParserDO` is available for parsing context/history; current parse endpoint uses direct AI calls with fallback, keeping DO available for future contextual parsing.
+
+## Data
+- Persistence: Cloudflare D1 (`tasks`, `schedule_entries`, `analytics_aggregates`, `ai_requests`) with migrations in `worker/db/migrations` and binding `DB` configured in `wrangler.toml`.
+- AI: Workers AI binding `AI` (remote) using Llama 3.3 instruct; Durable Object `CommandParserDO` provides parsing context.

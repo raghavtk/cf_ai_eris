@@ -1,5 +1,19 @@
 import { prompts } from './prompts'
-const MODEL = '@cf/meta/llama-3-8b-instruct'
+
+const MODEL_CANDIDATES = ['@cf/meta/llama-3-8b-instruct']
+
+const runWithFallback = async (env: any, prompt: string) => {
+  let lastErr: any
+  for (const model of MODEL_CANDIDATES) {
+    try {
+      const result = await env.AI.run(model as any, { prompt })
+      return { result, model }
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  throw lastErr
+}
 
 const extractJson = (text: string) => {
   // Try straight JSON first
@@ -29,22 +43,22 @@ const normalize = (res: any) => {
 export const aiService = {
   async parseTask(input: string, env: any) {
     const prompt = prompts.parseTask(input)
-    const result = await env.AI.run(MODEL, { prompt })
+    const { result } = await runWithFallback(env, prompt)
     return normalize(result?.response ?? result)
   },
   async suggestPriority(task: any, env: any) {
     const prompt = prompts.suggestPriority(task)
-    const result = await env.AI.run(MODEL, { prompt })
+    const { result } = await runWithFallback(env, prompt)
     return normalize(result?.response ?? result)
   },
   async estimateDuration(task: any, env: any) {
     const prompt = prompts.estimateDuration(task)
-    const result = await env.AI.run(MODEL, { prompt })
+    const { result } = await runWithFallback(env, prompt)
     return normalize(result?.response ?? result)
   },
   async categorizeTask(task: any, env: any) {
     const prompt = prompts.categorizeTask(task)
-    const result = await env.AI.run(MODEL, { prompt })
+    const { result } = await runWithFallback(env, prompt)
     return normalize(result?.response ?? result)
   },
 }

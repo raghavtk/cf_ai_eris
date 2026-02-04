@@ -1,7 +1,7 @@
-				import worker, * as OTHER_EXPORTS from "/mnt/c/Users/ragha/OneDrive/Desktop/intern/cloudflare/cf_ai_eris/worker/src/index.ts";
+				import worker, * as OTHER_EXPORTS from "/home/raghav/.nvm/versions/node/v20.19.5/lib/node_modules/wrangler/wrangler-dist/ProxyServerWorker.js";
 				import * as __MIDDLEWARE_0__ from "/home/raghav/.nvm/versions/node/v20.19.5/lib/node_modules/wrangler/templates/middleware/middleware-ensure-req-body-drained.ts";
 
-				export * from "/mnt/c/Users/ragha/OneDrive/Desktop/intern/cloudflare/cf_ai_eris/worker/src/index.ts";
+				export * from "/home/raghav/.nvm/versions/node/v20.19.5/lib/node_modules/wrangler/wrangler-dist/ProxyServerWorker.js";
 				const MIDDLEWARE_TEST_INJECT = "__INJECT_FOR_TESTING_WRANGLER_MIDDLEWARE__";
 				export const __INTERNAL_WRANGLER_MIDDLEWARE__ = [
 					

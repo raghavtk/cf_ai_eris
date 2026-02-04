@@ -68,7 +68,7 @@ function Home() {
         </p>
       </div>
 
-      <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '40px' }}>
         <div style={{ width: '100%', maxWidth: '900px' }}>
           <NaturalLanguageInput onSavePreview={handlePreview} />
         </div>

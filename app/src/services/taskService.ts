@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8787'
+const PROD_API_BASE = 'https://productivity-assistant-worker.raghavtkesari.workers.dev'
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? PROD_API_BASE : 'http://localhost:8787')
 
 export type Task = {
   id: string

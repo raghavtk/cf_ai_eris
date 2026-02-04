@@ -1,7 +1,7 @@
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
-// .wrangler/tmp/bundle-flKqb4/checked-fetch.js
+// .wrangler/tmp/bundle-5xhKYQ/checked-fetch.js
 var urls = /* @__PURE__ */ new Set();
 function checkURL(request, init) {
   const url = request instanceof URL ? request : new URL(
@@ -60,7 +60,19 @@ Return JSON: {"category":"work|personal|other","subcategory":"one of allowed","c
 };
 
 // src/ai/aiService.ts
-var MODEL = "@cf/meta/llama-3-8b-instruct";
+var MODEL_CANDIDATES = ["@cf/meta/llama-3-8b-instruct"];
+var runWithFallback = /* @__PURE__ */ __name(async (env, prompt) => {
+  let lastErr;
+  for (const model of MODEL_CANDIDATES) {
+    try {
+      const result = await env.AI.run(model, { prompt });
+      return { result, model };
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}, "runWithFallback");
 var extractJson = /* @__PURE__ */ __name((text) => {
   try {
     return JSON.parse(text);
@@ -85,22 +97,22 @@ var normalize = /* @__PURE__ */ __name((res) => {
 var aiService = {
   async parseTask(input, env) {
     const prompt = prompts.parseTask(input);
-    const result = await env.AI.run(MODEL, { prompt });
+    const { result } = await runWithFallback(env, prompt);
     return normalize(result?.response ?? result);
   },
   async suggestPriority(task, env) {
     const prompt = prompts.suggestPriority(task);
-    const result = await env.AI.run(MODEL, { prompt });
+    const { result } = await runWithFallback(env, prompt);
     return normalize(result?.response ?? result);
   },
   async estimateDuration(task, env) {
     const prompt = prompts.estimateDuration(task);
-    const result = await env.AI.run(MODEL, { prompt });
+    const { result } = await runWithFallback(env, prompt);
     return normalize(result?.response ?? result);
   },
   async categorizeTask(task, env) {
     const prompt = prompts.categorizeTask(task);
-    const result = await env.AI.run(MODEL, { prompt });
+    const { result } = await runWithFallback(env, prompt);
     return normalize(result?.response ?? result);
   }
 };
@@ -161,9 +173,9 @@ var src_default = {
         id,
         body.title ?? "",
         body.description ?? "",
-        body.priority ?? "medium",
-        body.status ?? "pending",
-        body.category ?? "work",
+        (body.priority ?? "medium").toString().toLowerCase(),
+        (body.status ?? "pending").toString().toLowerCase(),
+        (body.category ?? "work").toString().toLowerCase(),
         body.subcategory ?? "Courses",
         body.due_date ?? "",
         body.estimated_duration ?? 0,
@@ -188,9 +200,9 @@ var src_default = {
       const merged = {
         title: body.title ?? existing.title ?? "",
         description: body.description ?? existing.description ?? "",
-        priority: body.priority ?? existing.priority ?? "medium",
-        status: body.status ?? existing.status ?? "pending",
-        category: body.category ?? existing.category ?? "work",
+        priority: (body.priority ?? existing.priority ?? "medium").toString().toLowerCase(),
+        status: (body.status ?? existing.status ?? "pending").toString().toLowerCase(),
+        category: (body.category ?? existing.category ?? "work").toString().toLowerCase(),
         subcategory: body.subcategory ?? existing.subcategory ?? "Courses",
         due_date: body.due_date ?? existing.due_date ?? "",
         estimated_duration: body.estimated_duration !== void 0 ? Number(body.estimated_duration) : existing.estimated_duration ?? 0,
@@ -220,26 +232,60 @@ var src_default = {
       return json({ success: true });
     }
     if (path === "/api/ai/parse-task" && request.method === "POST") {
-      const { input } = await request.json();
-      const id = env.COMMAND_PARSER.idFromName("singleton");
-      const stub = env.COMMAND_PARSER.get(id);
-      const res = await stub.fetch("https://do/parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input })
-      });
-      const text = await res.text();
       try {
-        const payload = JSON.parse(text);
-        return json(payload, res.status);
+        const { input } = await request.json();
+        const result = await aiService.parseTask(input, env);
+        return json(result);
       } catch (err) {
-        return json({ error: "Invalid JSON from DO", raw: text }, 502);
+        return json({ error: "parse-task failed", details: err?.message || String(err) }, 502);
       }
     }
     if (path === "/api/ai/suggest-priority" && request.method === "POST") {
       const task = await request.json();
       const result = await aiService.suggestPriority(task, env);
       return json(result);
+    }
+    if (path === "/api/ai/full-assist" && request.method === "POST") {
+      try {
+        const { input } = await request.json();
+        const parsedRaw = await aiService.parseTask(input, env);
+        const parsed = parsedRaw?.parsed ?? parsedRaw ?? {};
+        const title = parsed.title || "Untitled task";
+        const description = parsed.description || "";
+        const dueDate = parsed.due_date || "";
+        const [priorityRes, categoryRes, estimateRes] = await Promise.all([
+          aiService.suggestPriority({ title, description, due_date: dueDate }, env),
+          aiService.categorizeTask({ title, description }, env),
+          aiService.estimateDuration({ title, description }, env)
+        ]);
+        const priority = (priorityRes?.priority || priorityRes?.priority_label || priorityRes?.suggestion || parsed.priority || "medium").toString().toLowerCase();
+        const category = (categoryRes?.category || categoryRes?.category_label || parsed.category || "work").toString().toLowerCase();
+        const subcategory = categoryRes?.subcategory || categoryRes?.sub_category || parsed.subcategory || "Courses";
+        const estimatedDuration = estimateRes?.estimated_minutes || estimateRes?.estimated_duration || estimateRes?.estimatedMinutes || parsed.estimated_duration || 0;
+        const id = crypto.randomUUID();
+        const now = (/* @__PURE__ */ new Date()).toISOString();
+        await env.DB.prepare(
+          `INSERT INTO tasks (id,title,description,priority,status,category,subcategory,due_date,estimated_duration,note,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+        ).bind(
+          id,
+          title,
+          description,
+          priority,
+          parsed.status || "pending",
+          category,
+          subcategory,
+          dueDate,
+          Number(estimatedDuration) || 0,
+          parsed.note || "",
+          now,
+          now
+        ).run();
+        const task = await env.DB.prepare("SELECT * FROM tasks WHERE id = ?").bind(id).first();
+        return json({ task, parsed, priority: priorityRes, category: categoryRes, estimate: estimateRes }, 201);
+      } catch (err) {
+        return json({ error: "full-assist failed", details: err?.message || String(err) }, 502);
+      }
     }
     if (path === "/api/ai/estimate-duration" && request.method === "POST") {
       const task = await request.json();
@@ -273,9 +319,33 @@ var drainBody = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "drainBody");
 var middleware_ensure_req_body_drained_default = drainBody;
 
-// .wrangler/tmp/bundle-flKqb4/middleware-insertion-facade.js
+// ../../../../../../../../../../home/raghav/.nvm/versions/node/v20.19.5/lib/node_modules/wrangler/templates/middleware/middleware-miniflare3-json-error.ts
+function reduceError(e) {
+  return {
+    name: e?.name,
+    message: e?.message ?? String(e),
+    stack: e?.stack,
+    cause: e?.cause === void 0 ? void 0 : reduceError(e.cause)
+  };
+}
+__name(reduceError, "reduceError");
+var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx) => {
+  try {
+    return await middlewareCtx.next(request, env);
+  } catch (e) {
+    const error = reduceError(e);
+    return Response.json(error, {
+      status: 500,
+      headers: { "MF-Experimental-Error-Stack": "true" }
+    });
+  }
+}, "jsonError");
+var middleware_miniflare3_json_error_default = jsonError;
+
+// .wrangler/tmp/bundle-5xhKYQ/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
-  middleware_ensure_req_body_drained_default
+  middleware_ensure_req_body_drained_default,
+  middleware_miniflare3_json_error_default
 ];
 var middleware_insertion_facade_default = src_default;
 
@@ -304,7 +374,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-flKqb4/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-5xhKYQ/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
