@@ -17,7 +17,8 @@ Eris is a personal productivity assistant built on Cloudflare. It combines a Rea
 
 ## AI Usage
 Workers AI is invoked via the `AI` binding in the Worker (`wrangler.toml`). The current model is:
-- `@cf/meta/llama-3-8b-instruct`
+- Primary: `@cf/meta/llama-3.3-70b-instruct-fp8-fast`
+- Fallback: `@cf/meta/llama-3-8b-instruct`
 
 AI endpoints:
 - `POST /api/ai/parse-task`
@@ -25,6 +26,23 @@ AI endpoints:
 - `POST /api/ai/estimate-duration`
 - `POST /api/ai/categorize-task`
 - `POST /api/ai/full-assist` (parse → priority → categorize → estimate → persist)
+
+## Cloudflare Assignment Mapping
+This project is aligned to the optional Cloudflare AI-powered application assignment requirements.
+
+1. **LLM integration (Workers AI / Llama 3.3)**
+- Implemented in `worker/src/ai/aiService.ts` with a Llama 3.3 primary model and fallback model.
+
+2. **Workflow / coordination (Workers or Durable Objects)**
+- Implemented in `worker/src/index.ts` (Worker API orchestration) and `worker/src/durable-objects/CommandParserDO.ts` (session context + multi-turn parsing).
+
+3. **User input via chat or voice**
+- Implemented as natural-language text input in a Raycast-style palette (`Cmd/Ctrl+K`) in `app/src/components/NaturalLanguageInput.tsx`.
+- Includes compact, bounded thread context for follow-up commands.
+
+4. **Memory or state**
+- Implemented via Durable Object session history and persistent D1 storage (`tasks`, `schedule_entries`, `analytics_aggregates`, `ai_requests`).
+
 
 ## Data Model (D1)
 Primary tables:

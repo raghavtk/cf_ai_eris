@@ -1,3 +1,4 @@
+import { motion, AnimatePresence } from "framer-motion"
 import { useEffect, useMemo, useState } from 'react'
 import {
   Button,
@@ -352,11 +353,12 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
             </TableRow>
           </TableHead>
           <TableBody>
+<AnimatePresence>
             {rows.map((row) => {
               const isSelected = selected.has(row.id)
               const isEditing = editingId === row.id
               return (
-                <TableRow key={row.id} hover selected={isSelected}>
+                <TableRow component={motion.tr} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.2 }} key={row.id} hover selected={isSelected}>
                   <TableCell padding='checkbox' sx={{ color: '#e5e7eb' }}>
                     <Checkbox
                       size='small'
@@ -553,7 +555,8 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
                 </TableRow>
               )
             })}
-          </TableBody>
+          </AnimatePresence>
+</TableBody>
         </Table>
       </TableContainer>
     </Paper>

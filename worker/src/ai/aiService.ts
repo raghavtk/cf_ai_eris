@@ -1,12 +1,15 @@
-import { prompts } from './prompts'
+import { prompts, parseTaskWithHistory } from './prompts'
 
-const MODEL_CANDIDATES = ['@cf/meta/llama-3-8b-instruct']
+const MODEL_CANDIDATES = [
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  '@cf/meta/llama-3-8b-instruct'
+]
 
-const runWithFallback = async (env: any, prompt: string) => {
+const runWithFallback = async (env: any, messages: any) => {
   let lastErr: any
   for (const model of MODEL_CANDIDATES) {
     try {
-      const result = await env.AI.run(model as any, { prompt })
+      const result = await env.AI.run(model as any, { messages })
       return { result, model }
     } catch (err) {
       lastErr = err
@@ -16,12 +19,10 @@ const runWithFallback = async (env: any, prompt: string) => {
 }
 
 const extractJson = (text: string) => {
-  // Try straight JSON first
   try {
     return JSON.parse(text)
   } catch (_) {
-    // Try to pull the first fenced code block that looks like JSON
-    const match = text.match(/```\s*json\s*([\s\S]*?)```/i) || text.match(/```([\s\S]*?)```/)
+    const match = text.match(/\`\`\`\s*json\s*([\s\S]*?)\`\`\`/i) || text.match(/\`\`\`([\s\S]*?)\`\`\`/)
     if (match && match[1]) {
       try {
         return JSON.parse(match[1])
@@ -42,23 +43,28 @@ const normalize = (res: any) => {
 
 export const aiService = {
   async parseTask(input: string, env: any) {
-    const prompt = prompts.parseTask(input)
-    const { result } = await runWithFallback(env, prompt)
+    const messages = prompts.parseTask(input)
+    const { result } = await runWithFallback(env, messages)
+    return normalize(result?.response ?? result)
+  },
+  async parseWithHistory(input: string, history: any[], env: any) {
+    const messages = parseTaskWithHistory(input, history)
+    const { result } = await runWithFallback(env, messages)
     return normalize(result?.response ?? result)
   },
   async suggestPriority(task: any, env: any) {
-    const prompt = prompts.suggestPriority(task)
-    const { result } = await runWithFallback(env, prompt)
+    const messages = prompts.suggestPriority(task)
+    const { result } = await runWithFallback(env, messages)
     return normalize(result?.response ?? result)
   },
   async estimateDuration(task: any, env: any) {
-    const prompt = prompts.estimateDuration(task)
-    const { result } = await runWithFallback(env, prompt)
+    const messages = prompts.estimateDuration(task)
+    const { result } = await runWithFallback(env, messages)
     return normalize(result?.response ?? result)
   },
   async categorizeTask(task: any, env: any) {
-    const prompt = prompts.categorizeTask(task)
-    const { result } = await runWithFallback(env, prompt)
+    const messages = prompts.categorizeTask(task)
+    const { result } = await runWithFallback(env, messages)
     return normalize(result?.response ?? result)
-  },
+  }
 }

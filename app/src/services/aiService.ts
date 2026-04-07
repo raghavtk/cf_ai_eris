@@ -2,11 +2,11 @@ const PROD_API_BASE = 'https://productivity-assistant-worker.raghavtkesari.worke
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? PROD_API_BASE : 'http://localhost:8787')
 
 export const aiService = {
-  parseTask: async (input: string) => {
+  parseTask: async (input: string, sessionId?: string) => {
     const res = await fetch(`${API_BASE}/api/ai/parse-task`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input }),
+      body: JSON.stringify({ input, sessionId }),
     })
     if (!res.ok) throw new Error('Failed to parse task')
     return res.json()

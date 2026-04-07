@@ -120,8 +120,15 @@ export default {
     // ----- AI Endpoints -----
     if (path === '/api/ai/parse-task' && request.method === 'POST') {
       try {
-        const { input } = (await request.json()) as { input: string }
-        const result = await aiService.parseTask(input, env)
+        const { input, sessionId } = (await request.json()) as { input: string; sessionId?: string }
+        const doName = sessionId?.trim() || 'global-session'
+        const id = env.COMMAND_PARSER.idFromName(doName)
+        const obj = env.COMMAND_PARSER.get(id)
+        const doRes = await obj.fetch('http://do/parse', {
+          method: 'POST',
+          body: JSON.stringify({ input }),
+        })
+        const result = await doRes.json()
         return json(result)
       } catch (err: any) {
         return json({ error: 'parse-task failed', details: err?.message || String(err) }, 502)
