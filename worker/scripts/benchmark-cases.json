@@ -1,0 +1,100 @@
+[
+  {
+    "id": "basic-work-task",
+    "input": "Finish internship report by Friday, high priority",
+    "requiredFields": ["title", "priority", "category"],
+    "assertions": [
+      { "field": "priority", "equals": "high" },
+      { "field": "category", "equals": "work" }
+    ]
+  },
+  {
+    "id": "meeting-task",
+    "input": "Set up project sync meeting tomorrow at 10am",
+    "requiredFields": ["title", "estimated_duration", "category"],
+    "assertions": [
+      { "field": "estimated_duration", "min": 30, "max": 120 }
+    ]
+  },
+  {
+    "id": "personal-chore",
+    "input": "Do laundry this evening",
+    "requiredFields": ["title", "category"],
+    "assertions": [
+      { "field": "category", "equals": "personal" }
+    ]
+  },
+  {
+    "id": "financial-task",
+    "input": "Pay electricity bill before 15th",
+    "requiredFields": ["title", "category", "due_date"],
+    "assertions": [
+      { "field": "category", "equals": "personal" }
+    ]
+  },
+  {
+    "id": "ambiguous-short",
+    "input": "urgent call",
+    "requiredFields": ["title", "priority"],
+    "assertions": [
+      { "field": "priority", "equals": "high" }
+    ]
+  },
+  {
+    "id": "study-task",
+    "input": "Revise operating systems chapter 5 tonight for 90 minutes",
+    "requiredFields": ["title", "category", "estimated_duration"],
+    "assertions": [
+      { "field": "category", "equals": "work" },
+      { "field": "estimated_duration", "equals": 90 }
+    ]
+  },
+  {
+    "id": "health-task",
+    "input": "Gym session tomorrow morning",
+    "requiredFields": ["title", "category"],
+    "assertions": [
+      { "field": "category", "equals": "personal" }
+    ]
+  },
+  {
+    "id": "followup-style",
+    "input": "Make it high priority and due next Monday",
+    "requiredFields": ["title", "priority", "due_date"],
+    "assertions": [
+      { "field": "priority", "equals": "high" }
+    ]
+  },
+  {
+    "id": "project-task",
+    "input": "Ship v1 of task parser with tests by next Wednesday",
+    "requiredFields": ["title", "priority", "category", "due_date"],
+    "assertions": [
+      { "field": "category", "equals": "work" }
+    ]
+  },
+  {
+    "id": "social-task",
+    "input": "Call mom this weekend",
+    "requiredFields": ["title", "category"],
+    "assertions": [
+      { "field": "category", "equals": "personal" }
+    ]
+  },
+  {
+    "id": "coursework-task",
+    "input": "Submit distributed systems assignment by 11:59pm tonight",
+    "requiredFields": ["title", "category", "due_date"],
+    "assertions": [
+      { "field": "category", "equals": "work" }
+    ]
+  },
+  {
+    "id": "complex-work-item",
+    "input": "Prepare demo video, polish README, and deploy worker before recruiter review",
+    "requiredFields": ["title", "priority", "category"],
+    "assertions": [
+      { "field": "category", "equals": "work" }
+    ]
+  }
+]

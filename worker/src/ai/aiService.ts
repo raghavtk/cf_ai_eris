@@ -5,20 +5,7 @@ const MODEL_CANDIDATES = [
   '@cf/meta/llama-3-8b-instruct'
 ]
 
-const runWithFallback = async (env: any, messages: any) => {
-  let lastErr: any
-  for (const model of MODEL_CANDIDATES) {
-    try {
-      const result = await env.AI.run(model as any, { messages })
-      return { result, model }
-    } catch (err) {
-      lastErr = err
-    }
-  }
-  throw lastErr
-}
-
-const extractJson = (text: string) => {
+export const extractJson = (text: string) => {
   try {
     return JSON.parse(text)
   } catch (_) {
@@ -27,44 +14,73 @@ const extractJson = (text: string) => {
       try {
         return JSON.parse(match[1])
       } catch (_) {
-        return { raw: text }
+        throw new Error('AI model returned invalid JSON')
       }
     }
-    return { raw: text }
+    throw new Error('AI model returned invalid JSON')
   }
 }
 
 const normalize = (res: any) => {
-  if (res == null) return null
-  if (typeof res === 'string') return extractJson(res)
-  if (typeof res === 'object') return res
-  return { raw: res }
+  const normalized = typeof res === 'string' ? extractJson(res) : res
+  if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) {
+    throw new Error('AI model returned a non-object response')
+  }
+  return normalized
+}
+
+const runAndNormalize = async (env: any, messages: any) => {
+  let lastError: unknown
+  for (const model of MODEL_CANDIDATES) {
+    try {
+      const result = await env.AI.run(model as any, { messages })
+      return { data: normalize(result?.response ?? result), model }
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('All AI model candidates failed')
 }
 
 export const aiService = {
-  async parseTask(input: string, env: any) {
+  async parseTaskWithMeta(input: string, env: any) {
     const messages = prompts.parseTask(input)
-    const { result } = await runWithFallback(env, messages)
-    return normalize(result?.response ?? result)
+    return runAndNormalize(env, messages)
+  },
+  async parseTask(input: string, env: any) {
+    const { data } = await this.parseTaskWithMeta(input, env)
+    return data
+  },
+  async parseWithHistoryWithMeta(input: string, history: any[], env: any) {
+    const messages = parseTaskWithHistory(input, history)
+    return runAndNormalize(env, messages)
   },
   async parseWithHistory(input: string, history: any[], env: any) {
-    const messages = parseTaskWithHistory(input, history)
-    const { result } = await runWithFallback(env, messages)
-    return normalize(result?.response ?? result)
+    const { data } = await this.parseWithHistoryWithMeta(input, history, env)
+    return data
+  },
+  async suggestPriorityWithMeta(task: any, env: any) {
+    const messages = prompts.suggestPriority(task)
+    return runAndNormalize(env, messages)
   },
   async suggestPriority(task: any, env: any) {
-    const messages = prompts.suggestPriority(task)
-    const { result } = await runWithFallback(env, messages)
-    return normalize(result?.response ?? result)
+    const { data } = await this.suggestPriorityWithMeta(task, env)
+    return data
+  },
+  async estimateDurationWithMeta(task: any, env: any) {
+    const messages = prompts.estimateDuration(task)
+    return runAndNormalize(env, messages)
   },
   async estimateDuration(task: any, env: any) {
-    const messages = prompts.estimateDuration(task)
-    const { result } = await runWithFallback(env, messages)
-    return normalize(result?.response ?? result)
+    const { data } = await this.estimateDurationWithMeta(task, env)
+    return data
+  },
+  async categorizeTaskWithMeta(task: any, env: any) {
+    const messages = prompts.categorizeTask(task)
+    return runAndNormalize(env, messages)
   },
   async categorizeTask(task: any, env: any) {
-    const messages = prompts.categorizeTask(task)
-    const { result } = await runWithFallback(env, messages)
-    return normalize(result?.response ?? result)
+    const { data } = await this.categorizeTaskWithMeta(task, env)
+    return data
   }
 }

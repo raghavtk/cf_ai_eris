@@ -1,5 +1,6 @@
 import { aiService } from './ai/aiService'
 import { CommandParserDO } from './durable-objects/CommandParserDO'
+import { clampMetricsLimit, logAiRequest } from './observability'
 
 interface Env {
   DB: D1Database
@@ -119,8 +120,19 @@ export default {
 
     // ----- AI Endpoints -----
     if (path === '/api/ai/parse-task' && request.method === 'POST') {
+      let body: { input?: unknown; sessionId?: unknown }
       try {
-        const { input, sessionId } = (await request.json()) as { input: string; sessionId?: string }
+        body = (await request.json()) as { input?: unknown; sessionId?: unknown }
+      } catch {
+        return json({ error: 'Invalid JSON body' }, 400)
+      }
+      const input = typeof body.input === 'string' ? body.input.trim() : ''
+      if (!input || input.length > 4000) {
+        return json({ error: 'Input must contain between 1 and 4000 characters' }, 400)
+      }
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : undefined
+      const startedAt = Date.now()
+      try {
         const doName = sessionId?.trim() || 'global-session'
         const id = env.COMMAND_PARSER.idFromName(doName)
         const obj = env.COMMAND_PARSER.get(id)
@@ -128,25 +140,73 @@ export default {
           method: 'POST',
           body: JSON.stringify({ input }),
         })
-        const result = await doRes.json()
+        if (!doRes.ok) {
+          throw new Error(`Command parser failed with HTTP ${doRes.status}`)
+        }
+        const result = (await doRes.json()) as any
+        if (!result?.parsed || typeof result.parsed !== 'object' || Array.isArray(result.parsed)) {
+          throw new Error('Command parser returned an invalid response')
+        }
+        await logAiRequest(env.DB, {
+          kind: 'parse-task',
+          status: 'success',
+          durationMs: Number(result?.telemetry?.duration_ms) || Date.now() - startedAt,
+          model: result?.telemetry?.model || 'unknown',
+        })
         return json(result)
       } catch (err: any) {
-        return json({ error: 'parse-task failed', details: err?.message || String(err) }, 502)
+        await logAiRequest(env.DB, {
+          kind: 'parse-task',
+          status: 'error',
+          durationMs: Date.now() - startedAt,
+          errorCode: 'parse_task_failed',
+          model: 'unknown',
+        })
+        return json({ error: 'parse-task failed' }, 502)
       }
     }
 
     if (path === '/api/ai/suggest-priority' && request.method === 'POST') {
-      const task = await request.json()
-      const result = await aiService.suggestPriority(task, env)
-      return json(result)
+      const startedAt = Date.now()
+      let task: any = {}
+      try {
+        task = await request.json()
+        const response = await aiService.suggestPriorityWithMeta(task, env)
+        await logAiRequest(env.DB, {
+          kind: 'suggest-priority',
+          status: 'success',
+          durationMs: Date.now() - startedAt,
+          model: response.model,
+        })
+        const result = response.data
+        return json(result)
+      } catch (err: any) {
+        await logAiRequest(env.DB, {
+          kind: 'suggest-priority',
+          status: 'error',
+          durationMs: Date.now() - startedAt,
+          errorCode: 'suggest_priority_failed',
+        })
+        return json({ error: 'suggest-priority failed' }, 502)
+      }
     }
 
     if (path === '/api/ai/full-assist' && request.method === 'POST') {
+      let body: { input?: unknown }
       try {
-        const { input } = (await request.json()) as { input: string }
-
+        body = (await request.json()) as { input?: unknown }
+      } catch {
+        return json({ error: 'Invalid JSON body' }, 400)
+      }
+      const input = typeof body.input === 'string' ? body.input.trim() : ''
+      if (!input || input.length > 4000) {
+        return json({ error: 'Input must contain between 1 and 4000 characters' }, 400)
+      }
+      const startedAt = Date.now()
+      try {
         // Step 1: Parse NL into structured fields
-        const parsedRaw = await aiService.parseTask(input, env)
+        const parsedResponse = await aiService.parseTaskWithMeta(input, env)
+        const parsedRaw = parsedResponse.data
         const parsed = (parsedRaw as any)?.parsed ?? parsedRaw ?? {}
 
         // Step 2: Fill minimal fields for follow-on prompts
@@ -155,11 +215,15 @@ export default {
         const dueDate = parsed.due_date || ''
 
         // Step 3: AI enrichments
-        const [priorityRes, categoryRes, estimateRes] = await Promise.all([
-          aiService.suggestPriority({ title, description, due_date: dueDate }, env),
-          aiService.categorizeTask({ title, description }, env),
-          aiService.estimateDuration({ title, description }, env),
+        const [priorityResponse, categoryResponse, estimateResponse] = await Promise.all([
+          aiService.suggestPriorityWithMeta({ title, description, due_date: dueDate }, env),
+          aiService.categorizeTaskWithMeta({ title, description }, env),
+          aiService.estimateDurationWithMeta({ title, description }, env),
         ])
+
+        const priorityRes = priorityResponse.data
+        const categoryRes = categoryResponse.data
+        const estimateRes = estimateResponse.data
 
         const priority = ((priorityRes as any)?.priority || (priorityRes as any)?.priority_label || (priorityRes as any)?.suggestion || parsed.priority || 'medium')
           .toString()
@@ -199,22 +263,102 @@ export default {
           .run()
 
         const task = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?').bind(id).first()
+        await logAiRequest(env.DB, {
+          kind: 'full-assist',
+          status: 'success',
+          durationMs: Date.now() - startedAt,
+          model: [parsedResponse.model, priorityResponse.model, categoryResponse.model, estimateResponse.model]
+            .filter(Boolean)
+            .join(', '),
+        })
         return json({ task, parsed, priority: priorityRes, category: categoryRes, estimate: estimateRes }, 201)
       } catch (err: any) {
-        return json({ error: 'full-assist failed', details: err?.message || String(err) }, 502)
+        await logAiRequest(env.DB, {
+          kind: 'full-assist',
+          status: 'error',
+          durationMs: Date.now() - startedAt,
+          errorCode: 'full_assist_failed',
+        })
+        return json({ error: 'full-assist failed' }, 502)
       }
     }
 
     if (path === '/api/ai/estimate-duration' && request.method === 'POST') {
-      const task = await request.json()
-      const result = await aiService.estimateDuration(task, env)
-      return json(result)
+      const startedAt = Date.now()
+      let task: any = {}
+      try {
+        task = await request.json()
+        const response = await aiService.estimateDurationWithMeta(task, env)
+        await logAiRequest(env.DB, {
+          kind: 'estimate-duration',
+          status: 'success',
+          durationMs: Date.now() - startedAt,
+          model: response.model,
+        })
+        const result = response.data
+        return json(result)
+      } catch (err: any) {
+        await logAiRequest(env.DB, {
+          kind: 'estimate-duration',
+          status: 'error',
+          durationMs: Date.now() - startedAt,
+          errorCode: 'estimate_duration_failed',
+        })
+        return json({ error: 'estimate-duration failed' }, 502)
+      }
     }
 
     if (path === '/api/ai/categorize-task' && request.method === 'POST') {
-      const task = await request.json()
-      const result = await aiService.categorizeTask(task, env)
-      return json(result)
+      const startedAt = Date.now()
+      let task: any = {}
+      try {
+        task = await request.json()
+        const response = await aiService.categorizeTaskWithMeta(task, env)
+        await logAiRequest(env.DB, {
+          kind: 'categorize-task',
+          status: 'success',
+          durationMs: Date.now() - startedAt,
+          model: response.model,
+        })
+        const result = response.data
+        return json(result)
+      } catch (err: any) {
+        await logAiRequest(env.DB, {
+          kind: 'categorize-task',
+          status: 'error',
+          durationMs: Date.now() - startedAt,
+          errorCode: 'categorize_task_failed',
+        })
+        return json({ error: 'categorize-task failed' }, 502)
+      }
+    }
+
+    if (path === '/api/metrics/ai/summary' && request.method === 'GET') {
+      const { results } = await env.DB.prepare(
+        `SELECT kind,
+                COUNT(*) AS total,
+                SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error_count,
+                ROUND(AVG(duration_ms), 2) AS avg_duration_ms,
+                MAX(duration_ms) AS max_duration_ms
+         FROM ai_requests
+         GROUP BY kind
+         ORDER BY total DESC`,
+      ).all()
+      return json({ updated_at: new Date().toISOString(), metrics: results })
+    }
+
+    if (path === '/api/metrics/ai/recent' && request.method === 'GET') {
+      const limit = clampMetricsLimit(url.searchParams.get('limit'))
+      const { results } = await env.DB.prepare(
+        `SELECT id, kind, status, duration_ms, model, created_at, error_message
+         FROM ai_requests
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+        .bind(limit)
+        .all()
+      return json({ updated_at: new Date().toISOString(), requests: results })
     }
 
     return notFound()

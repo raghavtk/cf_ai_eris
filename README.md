@@ -6,14 +6,14 @@ Eris is a personal productivity assistant built on Cloudflare. It combines a Rea
 - Natural language task entry (Parse) that pre-fills the Create Task form.
 - Task table with inline editing, batch actions, and AI-powered enrichments.
 - AI tools: suggest priority, estimate duration, categorize task, and an orchestrated full-assist flow.
-- Durable Object hook (`CommandParserDO`) for future context-aware parsing.
+- Bounded multi-turn parsing context through `CommandParserDO`.
 - Cloudflare D1 persistence with migrations and indexed queries.
 - Clean, dark UI with consistent UX for edit/save and batch actions.
 
 ## Architecture
 - **Frontend (app/)**: Vite + React + MUI UI, calling a Worker API.
 - **Backend (worker/)**: Cloudflare Worker with REST endpoints, D1 for storage, and Workers AI for inference.
-- **Durable Objects**: `CommandParserDO` exists for context/history parsing (available for future use).
+- **Durable Objects**: `CommandParserDO` stores the four most recent successful parsing turns per client session.
 
 ## AI Usage
 Workers AI is invoked via the `AI` binding in the Worker (`wrangler.toml`). The current model is:
@@ -26,6 +26,12 @@ AI endpoints:
 - `POST /api/ai/estimate-duration`
 - `POST /api/ai/categorize-task`
 - `POST /api/ai/full-assist` (parse → priority → categorize → estimate → persist)
+
+Observability endpoints:
+- `GET /api/metrics/ai/summary`
+- `GET /api/metrics/ai/recent?limit=20`
+
+These endpoints currently require the same deployment-level protection as the task API. Do not expose or deploy them publicly until the single-user access boundary is configured.
 
 ## Cloudflare Assignment Mapping
 This project is aligned to the optional Cloudflare AI-powered application assignment requirements.
@@ -42,6 +48,84 @@ This project is aligned to the optional Cloudflare AI-powered application assign
 
 4. **Memory or state**
 - Implemented via Durable Object session history and persistent D1 storage (`tasks`, `schedule_entries`, `analytics_aggregates`, `ai_requests`).
+
+## Measurable Evals
+Benchmark fixtures and runner live under `worker/scripts`.
+
+- Cases file: `worker/scripts/benchmark-cases.json`
+- Runner: `worker/scripts/benchmark-ai.js`
+- Command:
+
+```bash
+cd worker
+npm run benchmark
+```
+
+The benchmark reports:
+- Transport success rate
+- Full case pass rate
+- Semantic assertion pass rate
+- Required-field completeness percentage
+- Latency (`avg`, `p50`, `p95`)
+
+Each fixture defines required fields plus semantic assertions for values that can be judged reliably, such as explicit priority, category, and duration. The command exits non-zero unless every case passes. Benchmark output is environment- and model-dependent, so record a dated snapshot only after running against the intended deployment.
+
+## Durable Object Memory Story (Deterministic Example)
+Session memory is managed by `CommandParserDO` and bounded to recent history. The parse route can apply follow-up edits to the last parsed task.
+
+Example flow:
+
+1. Turn 1 input:
+`"Book dentist appointment next Tuesday"`
+
+2. Parsed output (example):
+
+```json
+{
+	"title": "Book dentist appointment",
+	"priority": "medium",
+	"category": "personal",
+	"subcategory": "Health",
+	"due_date": "<next Tuesday>",
+	"estimated_duration": 60,
+	"note": null
+}
+```
+
+3. Turn 2 follow-up:
+`"make it high priority and 45 minutes"`
+
+4. Merged output (example):
+
+```json
+{
+	"title": "Book dentist appointment",
+	"priority": "high",
+	"category": "personal",
+	"subcategory": "Health",
+	"due_date": "<next Tuesday>",
+	"estimated_duration": 45,
+	"note": null
+}
+```
+
+Memory path:
+`NaturalLanguageInput -> /api/ai/parse-task -> CommandParserDO -> aiService.parseWithHistory`
+
+Reset behavior:
+- `new session` in the palette resets the current client session id.
+- Persisted tasks in D1 are not deleted by session resets.
+
+## AI Request Observability
+Each AI endpoint write records to `ai_requests` with:
+- an opaque request ID
+- `kind`
+- `status` (`success` or `error`)
+- `duration_ms`
+- `model`
+- a bounded machine-readable error code (if any)
+
+Task text and model output are not stored in AI telemetry. Telemetry failures are reported to operational logs but do not change the user-facing AI response.
 
 
 ## Data Model (D1)
@@ -117,4 +201,4 @@ Then rebuild/redeploy so the built frontend points to the remote Worker.
 - `worker/db/migrations/` – D1 schema migrations
 
 ## Durable Object
-`CommandParserDO` is registered and ready for contextual parsing and multi-turn history. The current parse route uses direct AI calls but the DO can be wired in for richer context and long-lived state.
+`CommandParserDO` is registered and used by `/api/ai/parse-task` for bounded contextual parsing and multi-turn history. Starting a new client session selects a new Durable Object; it does not delete persisted tasks.

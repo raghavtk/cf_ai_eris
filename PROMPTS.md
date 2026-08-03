@@ -59,6 +59,23 @@ The workers AI features that I want to implement and have seen from some recomme
    - Auto-tag tasks as "Work", "Personal", "Study", "Health", etc.
    - Use case: Automatic task organization
 
+   ## Benchmark / Evaluation Prompt Set
+
+   These prompts are used in `worker/scripts/benchmark-cases.json` to measure transport reliability, required-field completeness, semantic correctness, and latency. Each case includes explicit assertions for stable facts such as category, priority, or duration; the benchmark exits non-zero if any case fails.
+
+   1. `Finish internship report by Friday, high priority`
+   2. `Set up project sync meeting tomorrow at 10am`
+   3. `Do laundry this evening`
+   4. `Pay electricity bill before 15th`
+   5. `urgent call`
+   6. `Revise operating systems chapter 5 tonight for 90 minutes`
+   7. `Gym session tomorrow morning`
+   8. `Make it high priority and due next Monday`
+   9. `Ship v1 of task parser with tests by next Wednesday`
+   10. `Call mom this weekend`
+   11. `Submit distributed systems assignment by 11:59pm tonight`
+   12. `Prepare demo video, polish README, and deploy worker before recruiter review`
+
 Website Design:
 The design of the website should be as follows: 
 
