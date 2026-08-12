@@ -1,4 +1,4 @@
-import { aiService } from './ai/aiService'
+import { AiPrivacyError, aiService, type AiRequestOptions } from './ai/aiService'
 import { CommandParserDO } from './durable-objects/CommandParserDO'
 import { clampMetricsLimit, logAiRequest } from './observability'
 import { validateCreateTask, validateTaskTextInput, validateUpdateTask } from '../../shared/contracts'
@@ -7,6 +7,8 @@ import type { ApiError, CreateTaskInput } from '../../shared/contracts'
 interface Env {
   DB: D1Database
   AI: any
+  OPENAI_API_KEY?: string
+  OPENAI_MODEL?: string
   COMMAND_PARSER: DurableObjectNamespace
 }
 
@@ -34,6 +36,24 @@ const readJson = async (request: Request) => {
     return { success: false as const, response: apiError(400, 'invalid_json', 'Request body must be valid JSON') }
   }
 }
+
+const readAiOptions = (value: unknown): AiRequestOptions | ApiError => {
+  const body = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+  const provider = body.provider
+  if (provider !== undefined && provider !== 'workers-ai' && provider !== 'openai') {
+    return { error: 'Invalid AI provider', code: 'invalid_ai_provider' }
+  }
+  for (const field of ['allowOpenAISensitive', 'includeWorkContext'] as const) {
+    if (body[field] !== undefined && typeof body[field] !== 'boolean') {
+      return { error: `Invalid ${field}`, code: 'invalid_ai_privacy_option' }
+    }
+  }
+  return { provider: provider as AiRequestOptions['provider'], allowOpenAISensitive: body.allowOpenAISensitive === true, includeWorkContext: body.includeWorkContext === true }
+}
+
+const isApiError = (value: AiRequestOptions | ApiError): value is ApiError => 'code' in value
+const aiFailure = (error: unknown, fallback: string) =>
+  error instanceof AiPrivacyError ? apiError(400, error.code, 'OpenAI privacy consent is required for this request') : json({ error: fallback }, 502)
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -130,7 +150,7 @@ export default {
 
     // ----- AI Endpoints -----
     if (path === '/api/ai/parse-task' && request.method === 'POST') {
-      let body: { input?: unknown; sessionId?: unknown }
+      let body: { input?: unknown; sessionId?: unknown } & AiRequestOptions
       try {
         body = (await request.json()) as { input?: unknown; sessionId?: unknown }
       } catch {
@@ -141,6 +161,8 @@ export default {
         return json({ error: 'Input must contain between 1 and 4000 characters' }, 400)
       }
       const sessionId = typeof body.sessionId === 'string' ? body.sessionId : undefined
+      const options = readAiOptions(body)
+      if (isApiError(options)) return json(options, 400)
       const startedAt = Date.now()
       try {
         const doName = sessionId?.trim() || 'global-session'
@@ -148,9 +170,20 @@ export default {
         const obj = env.COMMAND_PARSER.get(id)
         const doRes = await obj.fetch('http://do/parse', {
           method: 'POST',
-          body: JSON.stringify({ input }),
+          body: JSON.stringify({ input, ...options }),
         })
         if (!doRes.ok) {
+          if (doRes.status === 400) {
+            const failure = await doRes.json()
+            await logAiRequest(env.DB, {
+              kind: 'parse-task',
+              status: 'error',
+              durationMs: Date.now() - startedAt,
+              errorCode: typeof failure?.code === 'string' ? failure.code : 'parse_task_invalid',
+              model: 'unknown',
+            })
+            return json(failure, 400)
+          }
           throw new Error(`Command parser failed with HTTP ${doRes.status}`)
         }
         const result = (await doRes.json()) as any
@@ -161,7 +194,7 @@ export default {
           kind: 'parse-task',
           status: 'success',
           durationMs: Number(result?.telemetry?.duration_ms) || Date.now() - startedAt,
-          model: result?.telemetry?.model || 'unknown',
+          model: result?.telemetry?.model ? `${result?.telemetry?.provider || 'workers-ai'}:${result.telemetry.model}` : 'unknown',
         })
         return json(result)
       } catch (err: any) {
@@ -172,7 +205,7 @@ export default {
           errorCode: 'parse_task_failed',
           model: 'unknown',
         })
-        return json({ error: 'parse-task failed' }, 502)
+        return aiFailure(err, 'parse-task failed')
       }
     }
 
@@ -181,14 +214,16 @@ export default {
       if (!payload.success) return payload.response
       const validation = validateTaskTextInput(payload.data)
       if (!validation.success) return json(validation.error, 400)
+      const options = readAiOptions(payload.data)
+      if (isApiError(options)) return json(options, 400)
       const startedAt = Date.now()
       try {
-        const response = await aiService.suggestPriorityWithMeta(validation.data, env)
+        const response = await aiService.suggestPriorityWithMeta(validation.data, env, options)
         await logAiRequest(env.DB, {
           kind: 'suggest-priority',
           status: 'success',
           durationMs: Date.now() - startedAt,
-          model: response.model,
+          model: `${response.provider}:${response.model}`,
         })
         const result = response.data
         return json(result)
@@ -199,12 +234,12 @@ export default {
           durationMs: Date.now() - startedAt,
           errorCode: 'suggest_priority_failed',
         })
-        return json({ error: 'suggest-priority failed' }, 502)
+        return aiFailure(err, 'suggest-priority failed')
       }
     }
 
     if (path === '/api/ai/full-assist' && request.method === 'POST') {
-      let body: { input?: unknown }
+      let body: { input?: unknown } & AiRequestOptions
       try {
         body = (await request.json()) as { input?: unknown }
       } catch {
@@ -214,10 +249,12 @@ export default {
       if (!input || input.length > 4000) {
         return json({ error: 'Input must contain between 1 and 4000 characters' }, 400)
       }
+      const options = readAiOptions(body)
+      if (isApiError(options)) return json(options, 400)
       const startedAt = Date.now()
       try {
         // Step 1: Parse NL into structured fields
-        const parsedResponse = await aiService.parseTaskWithMeta(input, env)
+        const parsedResponse = await aiService.parseTaskWithMeta(input, env, options)
         const parsedRaw = parsedResponse.data
         const parsed = (parsedRaw as any)?.parsed ?? parsedRaw ?? {}
 
@@ -228,9 +265,9 @@ export default {
 
         // Step 3: AI enrichments
         const [priorityResponse, categoryResponse, estimateResponse] = await Promise.all([
-          aiService.suggestPriorityWithMeta({ title, description, due_date: dueDate }, env),
-          aiService.categorizeTaskWithMeta({ title, description }, env),
-          aiService.estimateDurationWithMeta({ title, description }, env),
+          aiService.suggestPriorityWithMeta({ title, description, due_date: dueDate }, env, options),
+          aiService.categorizeTaskWithMeta({ title, description }, env, options),
+          aiService.estimateDurationWithMeta({ title, description }, env, options),
         ])
 
         const priorityRes = priorityResponse.data
@@ -279,8 +316,8 @@ export default {
           kind: 'full-assist',
           status: 'success',
           durationMs: Date.now() - startedAt,
-          model: [parsedResponse.model, priorityResponse.model, categoryResponse.model, estimateResponse.model]
-            .filter(Boolean)
+          model: [parsedResponse, priorityResponse, categoryResponse, estimateResponse]
+            .map((response) => `${response.provider}:${response.model}`)
             .join(', '),
         })
         return json({ task, parsed, priority: priorityRes, category: categoryRes, estimate: estimateRes }, 201)
@@ -291,7 +328,7 @@ export default {
           durationMs: Date.now() - startedAt,
           errorCode: 'full_assist_failed',
         })
-        return json({ error: 'full-assist failed' }, 502)
+        return aiFailure(err, 'full-assist failed')
       }
     }
 
@@ -300,14 +337,16 @@ export default {
       if (!payload.success) return payload.response
       const validation = validateTaskTextInput(payload.data)
       if (!validation.success) return json(validation.error, 400)
+      const options = readAiOptions(payload.data)
+      if (isApiError(options)) return json(options, 400)
       const startedAt = Date.now()
       try {
-        const response = await aiService.estimateDurationWithMeta(validation.data, env)
+        const response = await aiService.estimateDurationWithMeta(validation.data, env, options)
         await logAiRequest(env.DB, {
           kind: 'estimate-duration',
           status: 'success',
           durationMs: Date.now() - startedAt,
-          model: response.model,
+          model: `${response.provider}:${response.model}`,
         })
         const result = response.data
         return json(result)
@@ -318,7 +357,7 @@ export default {
           durationMs: Date.now() - startedAt,
           errorCode: 'estimate_duration_failed',
         })
-        return json({ error: 'estimate-duration failed' }, 502)
+        return aiFailure(err, 'estimate-duration failed')
       }
     }
 
@@ -327,14 +366,16 @@ export default {
       if (!payload.success) return payload.response
       const validation = validateTaskTextInput(payload.data)
       if (!validation.success) return json(validation.error, 400)
+      const options = readAiOptions(payload.data)
+      if (isApiError(options)) return json(options, 400)
       const startedAt = Date.now()
       try {
-        const response = await aiService.categorizeTaskWithMeta(validation.data, env)
+        const response = await aiService.categorizeTaskWithMeta(validation.data, env, options)
         await logAiRequest(env.DB, {
           kind: 'categorize-task',
           status: 'success',
           durationMs: Date.now() - startedAt,
-          model: response.model,
+          model: `${response.provider}:${response.model}`,
         })
         const result = response.data
         return json(result)
@@ -345,7 +386,7 @@ export default {
           durationMs: Date.now() - startedAt,
           errorCode: 'categorize_task_failed',
         })
-        return json({ error: 'categorize-task failed' }, 502)
+        return aiFailure(err, 'categorize-task failed')
       }
     }
 

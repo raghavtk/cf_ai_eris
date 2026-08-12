@@ -67,7 +67,7 @@ describe('parse-task endpoint telemetry', () => {
       Response.json({
         parsed: { title: 'Call mom' },
         history: [],
-        telemetry: { model: '@cf/meta/test-model', duration_ms: 42 },
+        telemetry: { provider: 'workers-ai', model: '@cf/meta/test-model', duration_ms: 42 },
       }),
     )
     const response = await worker.fetch(
@@ -80,7 +80,7 @@ describe('parse-task endpoint telemetry', () => {
 
     expect(response.status).toBe(200)
     expect(db.bind.mock.calls[0]).toContain('success')
-    expect(db.bind.mock.calls[0]).toContain('@cf/meta/test-model')
+    expect(db.bind.mock.calls[0]).toContain('workers-ai:@cf/meta/test-model')
     expect(db.bind.mock.calls[0]).toContain(42)
     expect(db.bind.mock.calls[0]).not.toContain('Call mom')
   })
