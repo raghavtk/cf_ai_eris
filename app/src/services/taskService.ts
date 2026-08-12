@@ -1,34 +1,50 @@
+import type { ApiError, CreateTaskInput, Task, UpdateTaskInput } from '../../../shared/contracts'
+
 const PROD_API_BASE = 'https://productivity-assistant-worker.raghavtkesari.workers.dev'
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? PROD_API_BASE : 'http://localhost:8787')
 
-export type Task = {
-  id: string
-  title: string
-  description: string
-  priority: 'high' | 'medium' | 'low'
-  status: 'pending' | 'in_progress' | 'completed' | 'cancelled'
-  category: 'work' | 'personal' | 'other'
-  subcategory: string
-  due_date: string
-  estimated_duration: number
-  note: string
-  created_at: string
-  updated_at: string
+export type { CreateTaskInput, Task, UpdateTaskInput }
+
+export class ApiRequestError extends Error {
+  readonly status: number
+  readonly code: string
+  readonly details?: Record<string, string>
+
+  constructor(
+    message: string,
+    status: number,
+    code = 'request_failed',
+    details?: Record<string, string>,
+  ) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+    this.code = code
+    this.details = details
+  }
 }
 
-export type CreateTaskInput = Omit<Task, 'id' | 'created_at' | 'updated_at'>
+const parseResponse = async <T>(res: Response, fallbackMessage: string): Promise<T> => {
+  if (res.ok) return res.json() as Promise<T>
+
+  let body: Partial<ApiError> = {}
+  try {
+    body = (await res.json()) as Partial<ApiError>
+  } catch {
+    // Keep the stable fallback when the upstream response is not JSON.
+  }
+  throw new ApiRequestError(body.error || fallbackMessage, res.status, body.code, body.details)
+}
 
 export const taskService = {
   async getAll(): Promise<Task[]> {
     const res = await fetch(`${API_BASE}/api/tasks`)
-    if (!res.ok) throw new Error('Failed to fetch tasks')
-    return res.json()
+    return parseResponse<Task[]>(res, 'Failed to fetch tasks')
   },
 
   async getById(id: string): Promise<Task> {
     const res = await fetch(`${API_BASE}/api/tasks/${id}`)
-    if (!res.ok) throw new Error('Task not found')
-    return res.json()
+    return parseResponse<Task>(res, 'Task not found')
   },
 
   async create(input: CreateTaskInput): Promise<Task> {
@@ -37,18 +53,16 @@ export const taskService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     })
-    if (!res.ok) throw new Error('Failed to create task')
-    return res.json()
+    return parseResponse<Task>(res, 'Failed to create task')
   },
 
-  async update(id: string, input: Partial<Task>): Promise<Task> {
+  async update(id: string, input: UpdateTaskInput): Promise<Task> {
     const res = await fetch(`${API_BASE}/api/tasks/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     })
-    if (!res.ok) throw new Error('Failed to update task')
-    return res.json()
+    return parseResponse<Task>(res, 'Failed to update task')
   },
 
   async delete(id: string): Promise<void> {

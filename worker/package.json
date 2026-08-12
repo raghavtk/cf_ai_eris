@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -13,6 +16,6 @@
   },
   "devDependencies": {
     "vitest": "^4.1.10",
-    "wrangler": "^3.90.0"
+    "wrangler": "^4.121.0"
   }
 }

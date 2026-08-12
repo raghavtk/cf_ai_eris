@@ -5,6 +5,8 @@ node_modules/
 /dist/
 /dist-ssr/
 /.vite/
+coverage/
+*.tsbuildinfo
 
 # Logs
 logs
@@ -21,6 +23,10 @@ pnpm-debug.log*
 # Wrangler/Cloudflare
 .wrangler/
 .dev.vars*
+.backups/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # OS/Editor
 .DS_Store

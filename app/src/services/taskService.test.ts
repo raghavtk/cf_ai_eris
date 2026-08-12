@@ -1,7 +1,28 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { taskService } from './taskService'
+import { ApiRequestError, taskService } from './taskService'
+import type { CreateTaskInput, Task } from './taskService'
 
 global.fetch = vi.fn()
+const fetchMock = vi.mocked(global.fetch)
+
+const input: CreateTaskInput = {
+  title: 'New Task',
+  description: '',
+  priority: 'medium',
+  status: 'pending',
+  category: 'work',
+  subcategory: 'Projects',
+  due_date: '',
+  estimated_duration: 0,
+  note: '',
+}
+
+const task: Task = {
+  id: '2',
+  ...input,
+  created_at: '2026-08-11T00:00:00.000Z',
+  updated_at: '2026-08-11T00:00:00.000Z',
+}
 
 describe('taskService', () => {
   beforeEach(() => {
@@ -9,11 +30,8 @@ describe('taskService', () => {
   })
 
   it('should fetch all tasks', async () => {
-    const mockTasks = [{ id: '1', title: 'Test', priority: 'high' }]
-    ;(global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockTasks,
-    })
+    const mockTasks = [{ ...task, id: '1', title: 'Test', priority: 'high' as const }]
+    fetchMock.mockResolvedValueOnce(Response.json(mockTasks))
 
     const result = await taskService.getAll()
     expect(result).toEqual(mockTasks)
@@ -21,32 +39,42 @@ describe('taskService', () => {
   })
 
   it('should create a task', async () => {
-    const input = { title: 'New Task', priority: 'medium' } as any
-    const mockTask = { id: '2', ...input }
-    ;(global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockTask,
-    })
+    fetchMock.mockResolvedValueOnce(Response.json(task))
 
     const result = await taskService.create(input)
-    expect(result).toEqual(mockTask)
+    expect(result).toEqual(task)
   })
 
   it('should update a task', async () => {
     const updated = { title: 'Updated' }
-    const mockTask = { id: '1', ...updated }
-    ;(global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockTask,
-    })
+    const mockTask = { ...task, id: '1', ...updated }
+    fetchMock.mockResolvedValueOnce(Response.json(mockTask))
 
     const result = await taskService.update('1', updated)
     expect(result.title).toBe('Updated')
   })
 
   it('should delete a task', async () => {
-    ;(global.fetch as any).mockResolvedValueOnce({ ok: true })
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
     await taskService.delete('123')
     expect(global.fetch).toHaveBeenCalledWith('http://localhost:8787/api/tasks/123', { method: 'DELETE' })
+  })
+
+  it('surfaces structured API validation errors', async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        error: 'Invalid task payload',
+        code: 'invalid_task',
+        details: { title: 'Title is required' },
+      }, { status: 400 }),
+    )
+
+    const request = taskService.create({ ...input, title: '' })
+    await expect(request).rejects.toMatchObject<ApiRequestError>({
+      message: 'Invalid task payload',
+      status: 400,
+      code: 'invalid_task',
+      details: { title: 'Title is required' },
+    })
   })
 })

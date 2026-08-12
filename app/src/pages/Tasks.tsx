@@ -12,15 +12,15 @@ import {
   FormControl,
   InputLabel,
   Select,
+  Alert,
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material'
-import { taskService } from '../services/taskService'
+import { ApiRequestError, taskService } from '../services/taskService'
 import { useNavigate, useLocation } from 'react-router-dom'
 import NaturalLanguageInput from '../components/NaturalLanguageInput'
+import type { ParsedTask, TaskCategory as Category, TaskPriority as Priority, TaskStatus as Status } from '../../../shared/contracts'
 
-type Category = 'work' | 'personal' | 'other'
-type Priority = 'high' | 'medium' | 'low'
-type Status = 'pending' | 'in_progress' | 'completed'
+type FormStatus = Exclude<Status, 'cancelled'>
 
 type TaskForm = {
   title: string
@@ -30,19 +30,8 @@ type TaskForm = {
   subcategory: string
   dueDate: string
   estimatedDuration: string
-  status: Status
+  status: FormStatus
   note: string
-}
-
-type ParsedTask = {
-  title?: string
-  description?: string
-  priority?: string
-  category?: string
-  subcategory?: string
-  due_date?: string
-  estimated_duration?: number
-  note?: string | null
 }
 
 const initialState: TaskForm = {
@@ -73,6 +62,8 @@ const labelSx = { color: '#cbd5e1', '&.Mui-focused': { color: '#e5e7eb' } }
 
 const Tasks = () => {
   const [form, setForm] = useState<TaskForm>(initialState)
+  const [submitting, setSubmitting] = useState(false)
+  const [feedback, setFeedback] = useState<{ severity: 'success' | 'error'; message: string } | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -94,6 +85,8 @@ const Tasks = () => {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    setSubmitting(true)
+    setFeedback(null)
     try {
       await taskService.create({
         title: form.title,
@@ -105,13 +98,18 @@ const Tasks = () => {
         due_date: form.dueDate,
         estimated_duration: parseInt(form.estimatedDuration) || 0,
         note: form.note,
-      } as any)
-      alert('Task created successfully!')
+      })
       setForm(initialState)
-      navigate('/')
+      setFeedback({ severity: 'success', message: 'Task created. It is ready in your task list.' })
     } catch (error) {
       console.error('Failed to create task:', error)
-      alert('Failed to create task')
+      const detail = error instanceof ApiRequestError ? Object.values(error.details ?? {})[0] : undefined
+      setFeedback({
+        severity: 'error',
+        message: detail || (error instanceof Error ? error.message : 'Failed to create task'),
+      })
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -138,7 +136,7 @@ const Tasks = () => {
 
   // If navigated from Home with parsed state, hydrate the form once
   useEffect(() => {
-    const parsed = (location.state as any)?.parsed as ParsedTask | undefined
+    const parsed = (location.state as { parsed?: ParsedTask } | null)?.parsed
     if (parsed) {
       handleParsedPreview(parsed)
     }
@@ -171,6 +169,20 @@ const Tasks = () => {
 
             <Box component='form' onSubmit={handleSubmit} noValidate>
               <Stack spacing={3}>
+                {feedback && (
+                  <Alert
+                    severity={feedback.severity}
+                    onClose={() => setFeedback(null)}
+                    aria-live='polite'
+                    action={feedback.severity === 'success' ? (
+                      <Button color='inherit' size='small' onClick={() => navigate('/view-tasks')}>
+                        View tasks
+                      </Button>
+                    ) : undefined}
+                  >
+                    {feedback.message}
+                  </Alert>
+                )}
                 <TextField label='Title' value={form.title} onChange={handleChange('title')} required fullWidth InputProps={{ sx: inputSx }} InputLabelProps={{ sx: labelSx }} />
                 <TextField label='Description' value={form.description} onChange={handleChange('description')} fullWidth InputProps={{ sx: inputSx }} InputLabelProps={{ sx: labelSx }} />
 
@@ -278,9 +290,9 @@ const Tasks = () => {
                   <Button variant='outlined' color='inherit' onClick={handleReset} sx={{ textTransform: 'none',  letterSpacing: '0.05em', borderColor: '#9ca3af', color: '#e5e7eb' }}>
                     Reset
                   </Button>
-                  <Button variant='contained' color='primary' type='submit' 
+                  <Button variant='contained' color='primary' type='submit' disabled={submitting}
                       sx={{ textTransform: 'none', fontWeight: 600, letterSpacing: '0.05em', px: 4 }}>
-                    Create Task
+                    {submitting ? 'Creating…' : 'Create Task'}
                   </Button>
                 </Stack>
               </Stack>

@@ -3,28 +3,16 @@ import { Modal, Box, Typography } from '@mui/material'
 import { motion, AnimatePresence } from 'framer-motion'
 import { aiService } from '../services/aiService'
 import { taskService } from '../services/taskService'
+import type { ParseHistoryItem, ParsedTask, Task } from '../../../shared/contracts'
 
-type ParsedTask = {
-  title?: string
-  description?: string
-  priority?: string
-  due_date?: string
-  category?: string
-  subcategory?: string
-  estimated_duration?: number
-  note?: string | null
-}
+export type { ParsedTask }
 
 type Props = {
   onSavePreview?: (task: ParsedTask) => void
-  onTaskCreated?: (task: any) => void
+  onTaskCreated?: (task: Task) => void
 }
 
-type ThreadItem = {
-  input: string
-  parsed: ParsedTask
-  ts?: string
-}
+type ThreadItem = ParseHistoryItem
 
 const SESSION_KEY = 'eris-ai-session-id'
 
@@ -102,8 +90,8 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
     setSaveMessage(null)
     try {
       const res = await aiService.parseTask(input, sessionId)
-      const parsed = typeof res === 'string' ? JSON.parse(res) : (res.parsed || res)
-      const history = Array.isArray((res as any)?.history) ? ((res as any).history as ThreadItem[]) : []
+      const parsed = res.parsed
+      const history = Array.isArray(res.history) ? res.history : []
       if (history.length) {
         setThread(history.slice(-5))
       } else {
@@ -111,8 +99,8 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
       }
       onSavePreview?.(parsed)
       setInput('')
-    } catch (e: any) {
-      setError(e?.message || 'Parse failed')
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : 'Parse failed')
     } finally {
       setLoading(false)
     }
@@ -143,11 +131,11 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
       setSavingKey(key)
       setError(null)
       setSaveMessage(null)
-      const created = await taskService.create(toCreatePayload(item.parsed) as any)
+      const created = await taskService.create(toCreatePayload(item.parsed))
       onTaskCreated?.(created)
       setSaveMessage(`Saved "${created.title}" to tasks.`)
-    } catch (e: any) {
-      setError(e?.message || 'Failed to save task')
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : 'Failed to save task')
     } finally {
       setSavingKey(null)
     }

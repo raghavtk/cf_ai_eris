@@ -1,5 +1,14 @@
+import type { AiResult, ParseTaskResponse, TaskTextInput } from '../../../shared/contracts'
+
 const PROD_API_BASE = 'https://productivity-assistant-worker.raghavtkesari.workers.dev'
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? PROD_API_BASE : 'http://localhost:8787')
+
+type PriorityInput = TaskTextInput & { due_date: string }
+
+const readJson = async <T>(response: Response, message: string): Promise<T> => {
+  if (!response.ok) throw new Error(message)
+  return response.json() as Promise<T>
+}
 
 export const aiService = {
   parseTask: async (input: string, sessionId?: string) => {
@@ -8,37 +17,33 @@ export const aiService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ input, sessionId }),
     })
-    if (!res.ok) throw new Error('Failed to parse task')
-    return res.json()
+    return readJson<ParseTaskResponse>(res, 'Failed to parse task')
   },
 
-  suggestPriority: async (task: any) => {
+  suggestPriority: async (task: PriorityInput) => {
     const res = await fetch(`${API_BASE}/api/ai/suggest-priority`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(task),
     })
-    if (!res.ok) throw new Error('Failed to suggest priority')
-    return res.json()
+    return readJson<AiResult>(res, 'Failed to suggest priority')
   },
 
-  estimateDuration: async (task: any) => {
+  estimateDuration: async (task: TaskTextInput) => {
     const res = await fetch(`${API_BASE}/api/ai/estimate-duration`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(task),
     })
-    if (!res.ok) throw new Error('Failed to estimate duration')
-    return res.json()
+    return readJson<AiResult>(res, 'Failed to estimate duration')
   },
 
-  categorizeTask: async (task: any) => {
+  categorizeTask: async (task: TaskTextInput) => {
     const res = await fetch(`${API_BASE}/api/ai/categorize-task`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(task),
     })
-    if (!res.ok) throw new Error('Failed to categorize task')
-    return res.json()
+    return readJson<AiResult>(res, 'Failed to categorize task')
   },
 }

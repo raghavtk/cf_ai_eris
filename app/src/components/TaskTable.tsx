@@ -18,6 +18,7 @@ import {
 } from '@mui/material'
 import { aiService } from '../services/aiService'
 import { taskService } from '../services/taskService'
+import type { AiResult, Task, UpdateTaskInput } from '../../../shared/contracts'
 
 export type TaskRow = {
   id: string
@@ -53,7 +54,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
 
   const selectedTasks = useMemo(() => rows.filter((r) => selected.has(r.id)), [rows, selected])
 
-  const mapApiTask = (t: any): TaskRow => ({
+  const mapApiTask = (t: Task): TaskRow => ({
     id: t.id,
     title: t.title,
     description: t.description,
@@ -76,14 +77,14 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
     return null
   }
 
-  const normalizePriority = (res: any, fallback: TaskRow['priority']) =>
+  const normalizePriority = (res: AiResult, fallback: TaskRow['priority']) =>
     (pickMatch([res?.priority, res?.priority_label, res?.suggestion, res?.raw], /high|medium|low/i) as TaskRow['priority']) ||
     fallback
 
-  const normalizeCategory = (res: any, fallback: TaskRow['category']) =>
+  const normalizeCategory = (res: AiResult, fallback: TaskRow['category']) =>
     (pickMatch([res?.category, res?.category_label, res?.raw], /work|personal|other/i) as TaskRow['category']) || fallback
 
-  const normalizeSubcategory = (res: any, fallback: string) => {
+  const normalizeSubcategory = (res: AiResult, fallback: string) => {
     const direct = res?.subcategory ?? res?.sub_category
     if (typeof direct === 'string' && direct.trim()) return direct.trim()
 
@@ -106,7 +107,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
     return fallback
   }
 
-  const normalizeEstimate = (res: any) => {
+  const normalizeEstimate = (res: AiResult) => {
     const candidate = res?.estimated_minutes ?? res?.estimated_duration ?? res?.estimatedMinutes ?? res?.minutes ?? res?.raw
     if (typeof candidate === 'number' && !Number.isNaN(candidate)) return candidate
     if (typeof candidate === 'string') {
@@ -127,7 +128,8 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -147,7 +149,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
     if (!editingId || !editDraft) return
     setSavingEdit(true)
     try {
-      const payload = {
+      const payload: UpdateTaskInput = {
         title: editDraft.title,
         description: editDraft.description,
         priority: editDraft.priority,
@@ -157,7 +159,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
         due_date: editDraft.dueDate,
         estimated_duration: Number(editDraft.estimatedDuration) || 0,
         note: editDraft.note,
-      } as any
+      }
 
       const updated = await taskService.update(editingId, payload)
       setRows((prev) =>
@@ -206,7 +208,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
         selectedTasks.map(async (t) => {
           const res = await aiService.estimateDuration({ title: t.title, description: t.description })
           const est = normalizeEstimate(res)
-          await taskService.update(t.id, { estimated_duration: est } as any)
+          await taskService.update(t.id, { estimated_duration: est })
         }),
       )
       await refreshRows()
@@ -228,7 +230,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
           const res = await aiService.categorizeTask({ title: t.title, description: t.description })
           const category = normalizeCategory(res, t.category ?? 'work')
           const subcategory = normalizeSubcategory(res, t.subcategory ?? '')
-          await taskService.update(t.id, { category, subcategory } as any)
+          await taskService.update(t.id, { category, subcategory })
         }),
       )
       await refreshRows()
@@ -249,7 +251,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
         selectedTasks.map(async (t) => {
           const res = await aiService.suggestPriority({ title: t.title, description: t.description, due_date: t.dueDate })
           const priority = normalizePriority(res, t.priority ?? 'medium')
-          await taskService.update(t.id, { priority } as any)
+          await taskService.update(t.id, { priority })
         }),
       )
       await refreshRows()
@@ -330,6 +332,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
             <TableRow>
               <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }} padding='checkbox'>
                 <Checkbox
+                  inputProps={{ 'aria-label': 'Select all tasks' }}
                   size='small'
                   sx={{ color: '#e5e7eb' }}
                   indeterminate={selected.size > 0 && selected.size < rows.length}
@@ -361,6 +364,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
                 <TableRow component={motion.tr} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.2 }} key={row.id} hover selected={isSelected}>
                   <TableCell padding='checkbox' sx={{ color: '#e5e7eb' }}>
                     <Checkbox
+                      inputProps={{ 'aria-label': `Select ${row.title}` }}
                       size='small'
                       sx={{ color: '#e5e7eb' }}
                       checked={isSelected}
@@ -396,7 +400,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
                       <Select
                         size='small'
                         value={editDraft?.priority ?? row.priority}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, priority: e.target.value as any } : d))}
+                        onChange={(e) => setEditDraft((d) => (d ? { ...d, priority: e.target.value as TaskRow['priority'] } : d))}
                         sx={{ color: '#e5e7eb' }}
                       >
                         <MenuItem value='high'>high</MenuItem>
@@ -412,7 +416,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
                       <Select
                         size='small'
                         value={editDraft?.status ?? row.status}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, status: e.target.value as any } : d))}
+                        onChange={(e) => setEditDraft((d) => (d ? { ...d, status: e.target.value as TaskRow['status'] } : d))}
                         sx={{ color: '#e5e7eb' }}
                       >
                         <MenuItem value='pending'>pending</MenuItem>
@@ -429,7 +433,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
                       <Select
                         size='small'
                         value={editDraft?.category ?? row.category}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, category: e.target.value as any } : d))}
+                        onChange={(e) => setEditDraft((d) => (d ? { ...d, category: e.target.value as TaskRow['category'] } : d))}
                         sx={{ color: '#e5e7eb' }}
                       >
                         <MenuItem value='work'>work</MenuItem>

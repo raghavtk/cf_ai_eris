@@ -1,6 +1,8 @@
 import { aiService } from './ai/aiService'
 import { CommandParserDO } from './durable-objects/CommandParserDO'
 import { clampMetricsLimit, logAiRequest } from './observability'
+import { validateCreateTask, validateTaskTextInput, validateUpdateTask } from '../../shared/contracts'
+import type { ApiError, CreateTaskInput } from '../../shared/contracts'
 
 interface Env {
   DB: D1Database
@@ -22,6 +24,17 @@ const json = (data: unknown, status = 200) =>
 
 const notFound = () => new Response('Not Found', { status: 404, headers: corsHeaders })
 
+const apiError = (status: number, code: string, error: string, details?: Record<string, string>) =>
+  json({ error, code, ...(details ? { details } : {}) } satisfies ApiError, status)
+
+const readJson = async (request: Request) => {
+  try {
+    return { success: true as const, data: await request.json() }
+  } catch {
+    return { success: false as const, response: apiError(400, 'invalid_json', 'Request body must be valid JSON') }
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
@@ -39,7 +52,11 @@ export default {
     }
 
     if (path === '/api/tasks' && request.method === 'POST') {
-      const body = (await request.json()) as any
+      const payload = await readJson(request)
+      if (!payload.success) return payload.response
+      const validation = validateCreateTask(payload.data)
+      if (!validation.success) return json(validation.error, 400)
+      const body = validation.data
       const id = crypto.randomUUID()
       const now = new Date().toISOString()
       await env.DB.prepare(
@@ -48,15 +65,15 @@ export default {
       )
         .bind(
           id,
-          body.title ?? '',
-          body.description ?? '',
-          (body.priority ?? 'medium').toString().toLowerCase(),
-          (body.status ?? 'pending').toString().toLowerCase(),
-          (body.category ?? 'work').toString().toLowerCase(),
-          body.subcategory ?? 'Courses',
-          body.due_date ?? '',
-          body.estimated_duration ?? 0,
-          body.note ?? '',
+          body.title,
+          body.description,
+          body.priority,
+          body.status,
+          body.category,
+          body.subcategory,
+          body.due_date,
+          body.estimated_duration,
+          body.note,
           now,
           now,
         )
@@ -68,28 +85,21 @@ export default {
     if (path.match(/^\/api\/tasks\/[^/]+$/) && request.method === 'GET') {
       const id = path.split('/').pop()
       const task = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?').bind(id).first()
-      return task ? json(task) : json({ error: 'Task not found' }, 404)
+      return task ? json(task) : apiError(404, 'task_not_found', 'Task not found')
     }
 
     if (path.match(/^\/api\/tasks\/[^/]+$/) && request.method === 'PUT') {
       const id = path.split('/').pop()
-      const body = (await request.json()) as any
+      const payload = await readJson(request)
+      if (!payload.success) return payload.response
       const existing = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?').bind(id).first()
-      if (!existing) return json({ error: 'Task not found' }, 404)
+      if (!existing) return apiError(404, 'task_not_found', 'Task not found')
+
+      const validation = validateUpdateTask(payload.data, existing as unknown as CreateTaskInput)
+      if (!validation.success) return json(validation.error, 400)
 
       const now = new Date().toISOString()
-      const merged = {
-        title: body.title ?? existing.title ?? '',
-        description: body.description ?? existing.description ?? '',
-        priority: (body.priority ?? existing.priority ?? 'medium').toString().toLowerCase(),
-        status: (body.status ?? existing.status ?? 'pending').toString().toLowerCase(),
-        category: (body.category ?? existing.category ?? 'work').toString().toLowerCase(),
-        subcategory: body.subcategory ?? existing.subcategory ?? 'Courses',
-        due_date: body.due_date ?? existing.due_date ?? '',
-        estimated_duration:
-          body.estimated_duration !== undefined ? Number(body.estimated_duration) : existing.estimated_duration ?? 0,
-        note: body.note ?? existing.note ?? '',
-      }
+      const merged = validation.data
 
       await env.DB.prepare(
         `UPDATE tasks SET title=?,description=?,priority=?,status=?,category=?,subcategory=?,due_date=?,estimated_duration=?,note=?,updated_at=? WHERE id=?`,
@@ -167,11 +177,13 @@ export default {
     }
 
     if (path === '/api/ai/suggest-priority' && request.method === 'POST') {
+      const payload = await readJson(request)
+      if (!payload.success) return payload.response
+      const validation = validateTaskTextInput(payload.data)
+      if (!validation.success) return json(validation.error, 400)
       const startedAt = Date.now()
-      let task: any = {}
       try {
-        task = await request.json()
-        const response = await aiService.suggestPriorityWithMeta(task, env)
+        const response = await aiService.suggestPriorityWithMeta(validation.data, env)
         await logAiRequest(env.DB, {
           kind: 'suggest-priority',
           status: 'success',
@@ -284,11 +296,13 @@ export default {
     }
 
     if (path === '/api/ai/estimate-duration' && request.method === 'POST') {
+      const payload = await readJson(request)
+      if (!payload.success) return payload.response
+      const validation = validateTaskTextInput(payload.data)
+      if (!validation.success) return json(validation.error, 400)
       const startedAt = Date.now()
-      let task: any = {}
       try {
-        task = await request.json()
-        const response = await aiService.estimateDurationWithMeta(task, env)
+        const response = await aiService.estimateDurationWithMeta(validation.data, env)
         await logAiRequest(env.DB, {
           kind: 'estimate-duration',
           status: 'success',
@@ -309,11 +323,13 @@ export default {
     }
 
     if (path === '/api/ai/categorize-task' && request.method === 'POST') {
+      const payload = await readJson(request)
+      if (!payload.success) return payload.response
+      const validation = validateTaskTextInput(payload.data)
+      if (!validation.success) return json(validation.error, 400)
       const startedAt = Date.now()
-      let task: any = {}
       try {
-        task = await request.json()
-        const response = await aiService.categorizeTaskWithMeta(task, env)
+        const response = await aiService.categorizeTaskWithMeta(validation.data, env)
         await logAiRequest(env.DB, {
           kind: 'categorize-task',
           status: 'success',

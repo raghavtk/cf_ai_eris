@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { taskService } from './taskService'
 
 // Mark as integration test - skip in CI unless worker is running
@@ -25,7 +25,7 @@ describe.skip('taskService integration', () => {
       due_date: '2024-12-31',
       estimated_duration: 120,
       note: 'Integration test note',
-    } as any)
+    })
 
     expect(task.id).toBeDefined()
     expect(task.title).toBe('Integration Test Task')
@@ -42,7 +42,7 @@ describe.skip('taskService integration', () => {
     const updated = await taskService.update(createdTaskId, {
       title: 'Updated Integration Test',
       priority: 'high',
-    } as any)
+    })
 
     expect(updated.title).toBe('Updated Integration Test')
     expect(updated.priority).toBe('high')
@@ -54,8 +54,9 @@ describe.skip('taskService integration', () => {
     try {
       await taskService.getById(createdTaskId)
       throw new Error('Should have thrown 404')
-    } catch (error: any) {
-      expect(error.message).toContain('not found')
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toContain('not found')
     }
   })
 })

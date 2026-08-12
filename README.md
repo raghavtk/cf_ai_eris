@@ -140,7 +140,7 @@ Migrations live in [worker/db/migrations](worker/db/migrations).
 ## Running locally
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 22+
 - Cloudflare Wrangler (`npm i -g wrangler`) or use the local dev dependency in `worker/`
 
 ### 1) Install dependencies
@@ -181,6 +181,9 @@ npm run dev
 The UI should be available at `http://localhost:5173` and will call the Worker API.
 
 ## Deployment notes
+
+Run the full release gate and review the backup, restore, deletion, migration, and rollback procedures in [docs/operations.md](docs/operations.md) before deploying.
+
 ### Worker
 Deploy from the worker folder:
 ```bash

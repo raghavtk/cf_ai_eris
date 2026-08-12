@@ -8,31 +8,35 @@ import ViewTasks from './pages/ViewTasks'
 import TaskTable from './components/TaskTable'
 import type { TaskRow } from './components/TaskTable'
 import NaturalLanguageInput from './components/NaturalLanguageInput'
+import type { ParsedTask } from './components/NaturalLanguageInput'
 import Schedule from './pages/Schedule'
 import { taskService } from './services/taskService'
+import type { Task } from './services/taskService'
+
+const mapTaskToRow = (task: Task): TaskRow => ({
+  id: task.id,
+  title: task.title,
+  description: task.description,
+  priority: task.priority,
+  status: task.status,
+  category: task.category,
+  subcategory: task.subcategory,
+  dueDate: task.due_date,
+  estimatedDuration: task.estimated_duration,
+  note: task.note,
+})
 
 function Home() {
   const [tasks, setTasks] = useState<TaskRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [parsedPreview, setParsedPreview] = useState<any | null>(null)
+  const [parsedPreview, setParsedPreview] = useState<ParsedTask | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     taskService
       .getAll()
       .then((data) => {
-        const mapped: TaskRow[] = data.map((t: any) => ({
-          id: t.id,
-          title: t.title,
-          description: t.description,
-          priority: t.priority,
-          status: t.status,
-          category: t.category,
-          subcategory: t.subcategory,
-          dueDate: t.due_date,
-          estimatedDuration: t.estimated_duration,
-          note: t.note,
-        }))
+        const mapped = data.map(mapTaskToRow)
         setTasks(mapped)
       })
       .catch((err) => {
@@ -55,23 +59,12 @@ function Home() {
       .finally(() => setLoading(false))
   }, [])
 
-  const handlePreview = (parsed: any) => {
+  const handlePreview = (parsed: ParsedTask) => {
     setParsedPreview(parsed)
   }
 
-  const handleTaskCreated = (task: any) => {
-    const mapped: TaskRow = {
-      id: task.id,
-      title: task.title,
-      description: task.description,
-      priority: task.priority,
-      status: task.status,
-      category: task.category,
-      subcategory: task.subcategory,
-      dueDate: task.due_date,
-      estimatedDuration: task.estimated_duration,
-      note: task.note,
-    }
+  const handleTaskCreated = (task: Task) => {
+    const mapped = mapTaskToRow(task)
     setTasks((prev) => {
       const withoutDemo = prev.filter((t) => t.id !== 'demo-1')
       const withoutDup = withoutDemo.filter((t) => t.id !== mapped.id)
