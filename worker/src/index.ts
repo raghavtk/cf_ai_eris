@@ -1,8 +1,9 @@
 import { AiPrivacyError, aiService, type AiRequestOptions } from './ai/aiService'
 import { CommandParserDO } from './durable-objects/CommandParserDO'
 import { clampMetricsLimit, logAiRequest } from './observability'
-import { validateCreateTask, validateTaskTextInput, validateUpdateTask } from '../../shared/contracts'
-import type { ApiError, CreateTaskInput } from '../../shared/contracts'
+import { validateCreateScheduleEntry, validateCreateTask, validateDailyPlan, validateTaskTextInput, validateUpdateTask } from '../../shared/contracts'
+import type { ApiError, CreateTaskInput, ScheduleEntry, Task } from '../../shared/contracts'
+import { buildDailyPlan } from './scheduler'
 
 interface Env {
   DB: D1Database
@@ -146,6 +147,80 @@ export default {
       const id = path.split('/').pop()
       await env.DB.prepare('DELETE FROM tasks WHERE id = ?').bind(id).run()
       return json({ success: true })
+    }
+
+    // ----- Daily schedule -----
+    if (path === '/api/schedule' && request.method === 'GET') {
+      const date = url.searchParams.get('date') || ''
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return apiError(400, 'invalid_schedule_date', 'Use date=YYYY-MM-DD')
+      const { results } = await env.DB.prepare(
+        `SELECT s.*, COALESCE(NULLIF(s.title, ''), t.title, 'Busy') AS title
+         FROM schedule_entries s LEFT JOIN tasks t ON t.id = s.task_id
+         WHERE s.scheduled_date = ? ORDER BY s.start_time`,
+      ).bind(date).all()
+      return json(results)
+    }
+
+    if (path === '/api/schedule' && request.method === 'POST') {
+      const payload = await readJson(request)
+      if (!payload.success) return payload.response
+      const validation = validateCreateScheduleEntry(payload.data)
+      if (!validation.success) return json(validation.error, 400)
+      const body = validation.data
+      const conflict = await env.DB.prepare(
+        `SELECT id FROM schedule_entries WHERE scheduled_date = ? AND start_time < ? AND end_time > ? LIMIT 1`,
+      ).bind(body.scheduled_date, body.end_time, body.start_time).first()
+      if (conflict) return apiError(409, 'schedule_conflict', 'That time overlaps an existing schedule entry')
+      const id = crypto.randomUUID()
+      const now = new Date().toISOString()
+      await env.DB.prepare(
+        `INSERT INTO schedule_entries
+         (id,task_id,title,scheduled_date,start_time,end_time,timezone,locked,source,sync_status,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(id, body.task_id, body.title, body.scheduled_date, body.start_time, body.end_time, body.timezone,
+        body.locked ? 1 : 0, body.source || 'local', 'local', now, now).run()
+      const entry = await env.DB.prepare('SELECT * FROM schedule_entries WHERE id = ?').bind(id).first()
+      return json(entry, 201)
+    }
+
+    if (path.match(/^\/api\/schedule\/[^/]+$/) && request.method === 'DELETE') {
+      const id = path.split('/').pop()
+      const entry = await env.DB.prepare('SELECT * FROM schedule_entries WHERE id = ?').bind(id).first<ScheduleEntry>()
+      if (!entry) return apiError(404, 'schedule_entry_not_found', 'Schedule entry not found')
+      if (entry.source === 'google') return apiError(409, 'external_event_read_only', 'Google events must be changed through calendar sync')
+      await env.DB.prepare('DELETE FROM schedule_entries WHERE id = ?').bind(id).run()
+      return json({ success: true })
+    }
+
+    if (path === '/api/schedule/plan' && request.method === 'POST') {
+      const payload = await readJson(request)
+      if (!payload.success) return payload.response
+      const validation = validateDailyPlan(payload.data)
+      if (!validation.success) return json(validation.error, 400)
+      const body = validation.data
+      const [{ results: taskRows }, { results: existingRows }] = await Promise.all([
+        env.DB.prepare(`SELECT * FROM tasks WHERE status IN ('pending','in_progress') ORDER BY created_at`).all(),
+        env.DB.prepare('SELECT * FROM schedule_entries WHERE scheduled_date = ? ORDER BY start_time').bind(body.date).all(),
+      ])
+      const existing = existingRows as unknown as ScheduleEntry[]
+      const preserved = existing.filter((entry) => entry.locked || entry.source !== 'local')
+      const { planned, unscheduled } = buildDailyPlan(taskRows as unknown as Task[], preserved, body.date, body.workday_start, body.workday_end)
+      await env.DB.prepare(`DELETE FROM schedule_entries WHERE scheduled_date = ? AND source = 'local' AND locked = 0`).bind(body.date).run()
+      const now = new Date().toISOString()
+      for (const block of planned) {
+        await env.DB.prepare(
+          `INSERT INTO schedule_entries
+           (id,task_id,title,scheduled_date,start_time,end_time,timezone,locked,source,sync_status,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).bind(crypto.randomUUID(), block.task.id, block.task.title, body.date, block.start_time, block.end_time,
+          body.timezone, 0, 'local', 'local', now, now).run()
+      }
+      const { results } = await env.DB.prepare(
+        `SELECT s.*, COALESCE(NULLIF(s.title, ''), t.title, 'Busy') AS title
+         FROM schedule_entries s LEFT JOIN tasks t ON t.id = s.task_id
+         WHERE s.scheduled_date = ? ORDER BY s.start_time`,
+      ).bind(body.date).all()
+      return json({ date: body.date, timezone: body.timezone, entries: results, unscheduled })
     }
 
     // ----- AI Endpoints -----

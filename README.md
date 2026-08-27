@@ -9,6 +9,7 @@ Eris is a personal productivity assistant built on Cloudflare. It combines a Rea
 - Bounded multi-turn parsing context through `CommandParserDO`.
 - Cloudflare D1 persistence with migrations and indexed queries.
 - Clean, dark UI with consistent UX for edit/save and batch actions.
+- Deterministic daily planner with hourly task blocks, capacity overflow, conflict protection, and calendar-ready persistence.
 
 ## Architecture
 - **Frontend (app/)**: Vite + React + MUI UI, calling a Worker API.
@@ -134,6 +135,10 @@ Primary tables:
 - `schedule_entries`
 - `analytics_aggregates`
 - `ai_requests`
+
+### Calendar integration boundary
+
+Schedule entries distinguish local Eris blocks from external calendar events using `source`, `external_calendar_id`, `external_event_id`, `external_etag`, and `sync_status`. Imported events are locked busy blocks, so re-planning cannot overwrite them. A Google Calendar adapter can therefore pull events into the same schedule model and push local task blocks back without changing the planner. OAuth credentials and refresh tokens should remain server-side (preferably encrypted), never in the React application or D1 as plaintext.
 
 Migrations live in [worker/db/migrations](worker/db/migrations).
 
