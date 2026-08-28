@@ -140,6 +140,8 @@ Primary tables:
 
 Schedule entries distinguish local Eris blocks from external calendar events using `source`, `external_calendar_id`, `external_event_id`, `external_etag`, and `sync_status`. Imported events are locked busy blocks, so re-planning cannot overwrite them. A Google Calendar adapter can therefore pull events into the same schedule model and push local task blocks back without changing the planner. OAuth credentials and refresh tokens should remain server-side (preferably encrypted), never in the React application or D1 as plaintext.
 
+Production schedule routes validate Cloudflare Access JWTs and scope schedule entries to the authenticated email. Configure `TEAM_DOMAIN`, `POLICY_AUD`, `ERIS_ALLOWED_EMAIL`, and `ERIS_ALLOWED_ORIGIN` as Worker variables, and protect the Worker with a Cloudflare Access policy. Local Wrangler requests use the isolated `local-dev` owner. Provider identity, lock state, and sync metadata are server-owned and are not accepted by the public schedule creation endpoint.
+
 Migrations live in [worker/db/migrations](worker/db/migrations).
 
 ## Running locally

@@ -1,6 +1,6 @@
 import type { Task } from '../../shared/contracts'
 
-type BusyBlock = { start_time: string; end_time: string }
+type BusyBlock = { task_id?: string | null; start_time: string; end_time: string }
 export type PlannedBlock = { task: Task; start_time: string; end_time: string }
 
 const minutes = (time: string) => {
@@ -19,8 +19,9 @@ const score = (task: Task, date: string) => {
 
 export function buildDailyPlan(tasks: Task[], busy: BusyBlock[], date: string, start: string, end: string) {
   const occupied = busy.map((block) => [minutes(block.start_time), minutes(block.end_time)] as const).sort((a, b) => a[0] - b[0])
+  const preservedTaskIds = new Set(busy.map((block) => block.task_id).filter((id): id is string => Boolean(id)))
   const candidates = tasks
-    .filter((task) => task.status === 'pending' || task.status === 'in_progress')
+    .filter((task) => (task.status === 'pending' || task.status === 'in_progress') && !preservedTaskIds.has(task.id))
     .sort((a, b) => score(b, date) - score(a, date) || a.created_at.localeCompare(b.created_at))
   const planned: PlannedBlock[] = []
   const unscheduled: Task[] = []

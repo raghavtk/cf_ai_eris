@@ -5,6 +5,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import LockIcon from '@mui/icons-material/Lock'
 import type { ScheduleEntry, Task } from '../../../shared/contracts'
 import { scheduleService } from '../services/scheduleService'
+import { blockPosition, visibleHourRange } from './scheduleLayout'
 import './Schedule.css'
 
 const localDate = () => {
@@ -12,7 +13,7 @@ const localDate = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 const hourLabel = (hour: number) => new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).format(new Date(2020, 0, 1, hour))
-const hours = Array.from({ length: 14 }, (_, index) => index + 7)
+const PIXELS_PER_HOUR = 72
 
 export default function Schedule() {
   const [date, setDate] = useState(localDate)
@@ -33,7 +34,8 @@ export default function Schedule() {
   }, [date])
   useEffect(() => { void load() }, [load])
 
-  const byHour = useMemo(() => new Map(entries.map((entry) => [Number(entry.start_time.slice(0, 2)), entry])), [entries])
+  const { startHour, endHour } = useMemo(() => visibleHourRange(start, end, entries), [start, end, entries])
+  const hours = useMemo(() => Array.from({ length: endHour - startHour + 1 }, (_, index) => startHour + index), [startHour, endHour])
   const plan = async () => {
     setPlanning(true); setError('')
     try {
@@ -61,17 +63,19 @@ export default function Schedule() {
       {error && <Alert severity='error' sx={{ mb: 2 }}>{error}</Alert>}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} alignItems='flex-start'>
         <Paper className='day-grid' elevation={0}>
-          {loading ? <Box p={8} textAlign='center'><CircularProgress /></Box> : hours.map((hour) => {
-            const entry = byHour.get(hour)
-            const duration = entry ? Math.max(1, Number(entry.end_time.slice(0, 2)) - Number(entry.start_time.slice(0, 2))) : 1
-            return <Box className='hour-row' key={hour} sx={{ minHeight: entry ? `${duration * 76}px` : '76px' }}>
-              <Typography className='hour-label'>{hourLabel(hour)}</Typography>
-              <Box className='hour-content'>{entry && <Box className={`schedule-block ${entry.source === 'google' ? 'google-block' : ''}`}>
-                <Stack direction='row' justifyContent='space-between' gap={2}><Box><Typography fontWeight={700}>{entry.title}</Typography><Typography variant='body2' color='#cbd5e1'>{entry.start_time}–{entry.end_time}</Typography></Box>
-                  <Stack direction='row' spacing={.75} alignItems='center'>{entry.locked ? <LockIcon fontSize='small' /> : null}<Chip size='small' label={entry.source === 'google' ? 'Google' : 'Eris'} />{entry.source === 'local' && <Button size='small' color='inherit' onClick={() => void remove(entry)}>Remove</Button>}</Stack>
-                </Stack></Box>}</Box>
+          {loading ? <Box p={8} textAlign='center'><CircularProgress /></Box> : <Box className='timeline' sx={{ height: `${(endHour - startHour) * PIXELS_PER_HOUR}px` }}>
+            {hours.map((hour, index) => <Box className='timeline-line' key={hour} sx={{ top: `${index * PIXELS_PER_HOUR}px` }}><Typography className='hour-label'>{hour < 24 ? hourLabel(hour) : ''}</Typography></Box>)}
+            <Box className='timeline-events'>
+              {entries.map((entry) => {
+                const position = blockPosition(entry, startHour, PIXELS_PER_HOUR)
+                return <Box key={entry.id} className={`schedule-block ${entry.source === 'google' ? 'google-block' : ''}`} sx={{ top: `${position.top}px`, height: `${position.height}px` }}>
+                  <Stack direction='row' justifyContent='space-between' gap={2}><Box className='block-copy'><Typography fontWeight={700} noWrap>{entry.title}</Typography><Typography variant='body2' color='#cbd5e1'>{entry.start_time}–{entry.end_time}</Typography></Box>
+                    <Stack direction='row' spacing={.75} alignItems='center'>{entry.locked ? <LockIcon fontSize='small' /> : null}<Chip size='small' label={entry.source === 'google' ? 'Google' : 'Eris'} />{entry.source === 'local' && <Button size='small' color='inherit' onClick={() => void remove(entry)}>Remove</Button>}</Stack>
+                  </Stack>
+                </Box>
+              })}
             </Box>
-          })}
+          </Box>}
         </Paper>
         <Stack spacing={2} className='schedule-sidebar'>
           <Paper className='sidebar-card' elevation={0}><Stack direction='row' spacing={1} alignItems='center' mb={1}><CalendarMonthIcon color='primary' /><Typography fontWeight={700}>Calendar sync</Typography></Stack><Typography variant='body2' color='#94a3b8'>Google events will become locked busy blocks; Eris task blocks can later be pushed back as events.</Typography><Button disabled fullWidth variant='outlined' sx={{ mt: 2 }}>Connect Google Calendar — next</Button></Paper>

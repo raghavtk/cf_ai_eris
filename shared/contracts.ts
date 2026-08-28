@@ -28,6 +28,7 @@ export type CalendarProvider = 'local' | 'google'
 
 export type ScheduleEntry = {
   id: string
+  owner_id: string
   task_id: string | null
   title: string
   scheduled_date: string
@@ -45,10 +46,7 @@ export type ScheduleEntry = {
   updated_at: string
 }
 
-export type CreateScheduleEntryInput = Pick<ScheduleEntry, 'task_id' | 'title' | 'scheduled_date' | 'start_time' | 'end_time' | 'timezone'> & {
-  locked?: boolean
-  source?: CalendarProvider
-}
+export type CreateScheduleEntryInput = Pick<ScheduleEntry, 'task_id' | 'title' | 'scheduled_date' | 'start_time' | 'end_time' | 'timezone'>
 
 export type DailyPlanInput = {
   date: string
@@ -207,14 +205,12 @@ export function validateCreateScheduleEntry(value: unknown): ValidationResult<Cr
   const start = text(value.start_time)
   const end = text(value.end_time)
   const timezone = text(value.timezone, 'UTC')
-  const source = value.source ?? 'local'
   if (!title) return fieldError('title', 'Title is required')
   if (!validateDate(date) || !date) return fieldError('scheduled_date', 'Use YYYY-MM-DD')
   if (!validateTime(start) || !validateTime(end)) return fieldError('time', 'Use HH:MM')
   if (start >= end) return fieldError('end_time', 'End time must be after start time')
   if (timezone.length > 100) return fieldError('timezone', 'Timezone must be 100 characters or fewer')
-  if (!isOneOf(source, ['local', 'google'] as const)) return fieldError('source', 'Use local or google')
-  return { success: true, data: { task_id: taskId, title, scheduled_date: date, start_time: start, end_time: end, timezone, locked: value.locked === true, source } }
+  return { success: true, data: { task_id: taskId, title, scheduled_date: date, start_time: start, end_time: end, timezone } }
 }
 
 export function validateDailyPlan(value: unknown): ValidationResult<DailyPlanInput> {

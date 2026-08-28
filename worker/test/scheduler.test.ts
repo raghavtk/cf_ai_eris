@@ -26,4 +26,10 @@ describe('daily scheduler', () => {
     expect(result.planned).toHaveLength(1)
     expect(result.unscheduled).toHaveLength(1)
   })
+
+  it('does not schedule a task that already has a preserved block', () => {
+    const existing = task({ id: 'existing' })
+    const result = buildDailyPlan([existing, task({ id: 'new' })], [{ task_id: 'existing', start_time: '09:00', end_time: '10:00' }], '2026-08-27', '09:00', '12:00')
+    expect(result.planned.map((block) => block.task.id)).toEqual(['new'])
+  })
 })
