@@ -24,6 +24,44 @@ export type Task = {
 export type CreateTaskInput = Omit<Task, 'id' | 'created_at' | 'updated_at'>
 export type UpdateTaskInput = Partial<CreateTaskInput>
 
+export type CalendarProvider = 'local' | 'google'
+
+export type ScheduleEntry = {
+  id: string
+  owner_id: string
+  task_id: string | null
+  title: string
+  scheduled_date: string
+  start_time: string
+  end_time: string
+  timezone: string
+  locked: number
+  source: CalendarProvider
+  external_calendar_id: string | null
+  external_event_id: string | null
+  external_etag: string | null
+  sync_status: 'local' | 'synced' | 'pending' | 'error'
+  last_synced_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type CreateScheduleEntryInput = Pick<ScheduleEntry, 'task_id' | 'title' | 'scheduled_date' | 'start_time' | 'end_time' | 'timezone'>
+
+export type DailyPlanInput = {
+  date: string
+  timezone: string
+  workday_start: string
+  workday_end: string
+}
+
+export type DailySchedule = {
+  date: string
+  timezone: string
+  entries: ScheduleEntry[]
+  unscheduled: Task[]
+}
+
 export type ParsedTask = {
   title?: string
   description?: string
@@ -82,6 +120,7 @@ const fieldError = (field: string, message: string): ValidationResult<never> => 
 })
 
 const validateDate = (value: string) => !value || /^\d{4}-\d{2}-\d{2}$/.test(value)
+const validateTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
 
 export function validateCreateTask(value: unknown): ValidationResult<CreateTaskInput> {
   if (!isRecord(value)) return fieldError('body', 'Expected a JSON object')
@@ -156,4 +195,32 @@ export function validateTaskTextInput(value: unknown): ValidationResult<TaskText
     success: true,
     data: { title, description, ...(dueDate ? { due_date: dueDate } : {}) },
   }
+}
+
+export function validateCreateScheduleEntry(value: unknown): ValidationResult<CreateScheduleEntryInput> {
+  if (!isRecord(value)) return fieldError('body', 'Expected a JSON object')
+  const taskId = value.task_id === null || value.task_id === undefined ? null : text(value.task_id)
+  const title = text(value.title)
+  const date = text(value.scheduled_date)
+  const start = text(value.start_time)
+  const end = text(value.end_time)
+  const timezone = text(value.timezone, 'UTC')
+  if (!title) return fieldError('title', 'Title is required')
+  if (!validateDate(date) || !date) return fieldError('scheduled_date', 'Use YYYY-MM-DD')
+  if (!validateTime(start) || !validateTime(end)) return fieldError('time', 'Use HH:MM')
+  if (start >= end) return fieldError('end_time', 'End time must be after start time')
+  if (timezone.length > 100) return fieldError('timezone', 'Timezone must be 100 characters or fewer')
+  return { success: true, data: { task_id: taskId, title, scheduled_date: date, start_time: start, end_time: end, timezone } }
+}
+
+export function validateDailyPlan(value: unknown): ValidationResult<DailyPlanInput> {
+  if (!isRecord(value)) return fieldError('body', 'Expected a JSON object')
+  const date = text(value.date)
+  const timezone = text(value.timezone, 'UTC')
+  const start = text(value.workday_start, '09:00')
+  const end = text(value.workday_end, '17:00')
+  if (!validateDate(date) || !date) return fieldError('date', 'Use YYYY-MM-DD')
+  if (!validateTime(start) || !validateTime(end) || start >= end) return fieldError('workday', 'Use a valid start and end in HH:MM')
+  if (timezone.length > 100) return fieldError('timezone', 'Timezone must be 100 characters or fewer')
+  return { success: true, data: { date, timezone, workday_start: start, workday_end: end } }
 }

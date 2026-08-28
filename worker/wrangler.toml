@@ -22,6 +22,11 @@ class_name = "CommandParserDO"
 tag = "v1-sqlite"
 new_sqlite_classes = ["CommandParserDO"]
 
+# Production schedule routes fail closed unless this is set to the identity
+# asserted by Cloudflare Access. Configure it as a deployed Worker variable.
+# [vars]
+# ERIS_ALLOWED_EMAIL = "you@example.com"
+
 [observability]
 enabled = false
 head_sampling_rate = 1

@@ -3,9 +3,9 @@ import { CommandParserDO } from './durable-objects/CommandParserDO'
 import { clampMetricsLimit, logAiRequest } from './observability'
 import { validateCreateTask, validateTaskTextInput, validateUpdateTask } from '../../shared/contracts'
 import type { ApiError, CreateTaskInput } from '../../shared/contracts'
+import { handleScheduleRequest, type ScheduleEnv } from './routes/schedule'
 
-interface Env {
-  DB: D1Database
+interface Env extends ScheduleEnv {
   AI: any
   OPENAI_API_KEY?: string
   OPENAI_MODEL?: string
@@ -57,6 +57,8 @@ const aiFailure = (error: unknown, fallback: string) =>
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const scheduleResponse = await handleScheduleRequest(request, env)
+    if (scheduleResponse) return scheduleResponse
     if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
     const url = new URL(request.url)
@@ -174,7 +176,7 @@ export default {
         })
         if (!doRes.ok) {
           if (doRes.status === 400) {
-            const failure = await doRes.json()
+            const failure = await doRes.json() as Record<string, unknown>
             await logAiRequest(env.DB, {
               kind: 'parse-task',
               status: 'error',

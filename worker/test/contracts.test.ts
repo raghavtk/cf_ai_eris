@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateCreateTask, validateTaskTextInput, validateUpdateTask } from '../../shared/contracts'
+import { validateCreateScheduleEntry, validateCreateTask, validateDailyPlan, validateTaskTextInput, validateUpdateTask } from '../../shared/contracts'
 import type { CreateTaskInput } from '../../shared/contracts'
 
 const existing: CreateTaskInput = {
@@ -55,5 +55,14 @@ describe('shared API contracts', () => {
       success: true,
       data: { title: 'Plan sprint', description: 'Scope work' },
     })
+  })
+
+  it('validates calendar-ready schedule blocks and working hours', () => {
+    expect(validateCreateScheduleEntry({ title: 'Focus', scheduled_date: '2026-08-27', start_time: '09:00', end_time: '10:00', timezone: 'America/New_York', source: 'google', locked: true })).toEqual({
+      success: true,
+      data: { task_id: null, title: 'Focus', scheduled_date: '2026-08-27', start_time: '09:00', end_time: '10:00', timezone: 'America/New_York' },
+    })
+    expect(validateCreateScheduleEntry({ title: 'Overlap', scheduled_date: '2026-08-27', start_time: '10:00', end_time: '09:00' })).toMatchObject({ success: false })
+    expect(validateDailyPlan({ date: '2026-08-27', timezone: 'America/New_York', workday_start: '09:00', workday_end: '17:00' })).toMatchObject({ success: true })
   })
 })

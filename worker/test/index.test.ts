@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import worker from '../src/index'
 
 const createDatabase = () => {
-  const run = vi.fn().mockResolvedValue({ success: true })
+  const run = vi.fn().mockResolvedValue({ success: true, meta: { changes: 1 } })
   const first = vi.fn().mockResolvedValue(null)
   const all = vi.fn().mockResolvedValue({ results: [] })
   const bind = vi.fn(() => ({ run, first, all }))
   const prepare = vi.fn(() => ({ bind, first, all }))
-  return { prepare, bind, run, first, all }
+  const batch = vi.fn().mockResolvedValue([])
+  return { prepare, bind, run, first, all, batch }
 }
 
 const createEnv = (doResponse: Response) => {
@@ -171,5 +172,51 @@ describe('AI enrichment API validation', () => {
       details: { title: 'Title is required' },
     })
     expect(db.prepare).not.toHaveBeenCalled()
+  })
+})
+
+describe('schedule API safety', () => {
+  it('fails closed for production requests without Access configuration', async () => {
+    const { env, db } = createEnv(Response.json({ error: 'unused' }))
+    const request = new Request('https://worker.example/api/schedule?date=2026-08-27')
+    Object.defineProperty(request, 'cf', { value: { colo: 'IAD' } })
+    const response = await worker.fetch(request, env as any)
+    expect(response.status).toBe(401)
+    expect(db.prepare).not.toHaveBeenCalled()
+  })
+
+  it('uses one atomic batch to replace a local daily plan', async () => {
+    const { env, db } = createEnv(Response.json({ error: 'unused' }))
+    db.all
+      .mockResolvedValueOnce({ results: [{ id: 'task-1', title: 'Focus', description: '', priority: 'high', status: 'pending', category: 'work', subcategory: '', due_date: '', estimated_duration: 60, note: '', created_at: '2026-08-01', updated_at: '2026-08-01' }] })
+      .mockResolvedValueOnce({ results: [] })
+      .mockResolvedValueOnce({ results: [] })
+    const response = await worker.fetch(new Request('http://localhost:8787/api/schedule/plan', {
+      method: 'POST', body: JSON.stringify({ date: '2026-08-27', timezone: 'America/New_York', workday_start: '09:00', workday_end: '17:00' }),
+    }), env as any)
+    expect(response.status).toBe(200)
+    expect(db.batch).toHaveBeenCalledOnce()
+    expect(db.batch.mock.calls[0][0]).toHaveLength(2)
+  })
+
+  it('rejects an overlapping create when the atomic insert makes no change', async () => {
+    const { env, db } = createEnv(Response.json({ error: 'unused' }))
+    db.run.mockResolvedValueOnce({ success: true, meta: { changes: 0 } })
+    const response = await worker.fetch(new Request('http://localhost:8787/api/schedule', {
+      method: 'POST',
+      headers: { Origin: 'http://localhost:5173' },
+      body: JSON.stringify({ title: 'Conflict', task_id: null, scheduled_date: '2026-08-27', start_time: '09:00', end_time: '10:00', timezone: 'America/New_York', source: 'google', locked: true }),
+    }), env as any)
+    expect(response.status).toBe(409)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173')
+    expect(response.headers.get('Access-Control-Allow-Credentials')).toBe('true')
+  })
+
+  it('rejects cross-origin requests outside the configured frontend', async () => {
+    const { env } = createEnv(Response.json({ error: 'unused' }))
+    const response = await worker.fetch(new Request('http://localhost:8787/api/schedule?date=2026-08-27', {
+      headers: { Origin: 'https://attacker.example' },
+    }), env as any)
+    expect(response.status).toBe(403)
   })
 })
