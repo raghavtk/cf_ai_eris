@@ -1,20 +1,14 @@
 import { AiPrivacyError, aiService, type AiRequestOptions } from './ai/aiService'
 import { CommandParserDO } from './durable-objects/CommandParserDO'
 import { clampMetricsLimit, logAiRequest } from './observability'
-import { validateCreateScheduleEntry, validateCreateTask, validateDailyPlan, validateTaskTextInput, validateUpdateTask } from '../../shared/contracts'
-import type { ApiError, CreateTaskInput, ScheduleEntry, Task } from '../../shared/contracts'
-import { buildDailyPlan } from './scheduler'
-import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { validateCreateTask, validateTaskTextInput, validateUpdateTask } from '../../shared/contracts'
+import type { ApiError, CreateTaskInput } from '../../shared/contracts'
+import { handleScheduleRequest, type ScheduleEnv } from './routes/schedule'
 
-interface Env {
-  DB: D1Database
+interface Env extends ScheduleEnv {
   AI: any
   OPENAI_API_KEY?: string
   OPENAI_MODEL?: string
-  TEAM_DOMAIN?: string
-  POLICY_AUD?: string
-  ERIS_ALLOWED_EMAIL?: string
-  ERIS_ALLOWED_ORIGIN?: string
   COMMAND_PARSER: DurableObjectNamespace
 }
 
@@ -24,16 +18,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
 }
 
-const json = (data: unknown, status = 200, headers: Record<string, string> = corsHeaders) =>
+const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
   })
 
 const notFound = () => new Response('Not Found', { status: 404, headers: corsHeaders })
 
-const apiError = (status: number, code: string, error: string, details?: Record<string, string>, headers?: Record<string, string>) =>
-  json({ error, code, ...(details ? { details } : {}) } satisfies ApiError, status, headers)
+const apiError = (status: number, code: string, error: string, details?: Record<string, string>) =>
+  json({ error, code, ...(details ? { details } : {}) } satisfies ApiError, status)
 
 const readJson = async (request: Request) => {
   try {
@@ -61,40 +55,11 @@ const isApiError = (value: AiRequestOptions | ApiError): value is ApiError => 'c
 const aiFailure = (error: unknown, fallback: string) =>
   error instanceof AiPrivacyError ? apiError(400, error.code, 'OpenAI privacy consent is required for this request') : json({ error: fallback }, 502)
 
-const accessKeySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>()
-const scheduleOwner = async (request: Request, env: Env) => {
-  // Requests created by Wrangler local development and unit tests have no CF metadata.
-  if (!request.cf) return 'local-dev'
-  if (!env.TEAM_DOMAIN || !env.POLICY_AUD || !env.ERIS_ALLOWED_EMAIL) return null
-  const token = request.headers.get('cf-access-jwt-assertion')
-  if (!token) return null
-  try {
-    let keySet = accessKeySets.get(env.TEAM_DOMAIN)
-    if (!keySet) {
-      keySet = createRemoteJWKSet(new URL(`${env.TEAM_DOMAIN.replace(/\/$/, '')}/cdn-cgi/access/certs`))
-      accessKeySets.set(env.TEAM_DOMAIN, keySet)
-    }
-    const { payload } = await jwtVerify(token, keySet, { issuer: env.TEAM_DOMAIN, audience: env.POLICY_AUD })
-    const email = typeof payload.email === 'string' ? payload.email.toLowerCase() : ''
-    return email && email === env.ERIS_ALLOWED_EMAIL.toLowerCase() ? email : null
-  } catch {
-    return null
-  }
-}
-
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const origin = request.headers.get('Origin')
-    const allowedOrigins = new Set(['http://localhost:5173', ...(env.ERIS_ALLOWED_ORIGIN ? [env.ERIS_ALLOWED_ORIGIN] : [])])
-    if (origin && !allowedOrigins.has(origin)) return apiError(403, 'origin_not_allowed', 'Origin is not allowed')
-    const scheduleCorsHeaders = {
-      ...corsHeaders,
-      'Access-Control-Allow-Origin': origin || env.ERIS_ALLOWED_ORIGIN || 'http://localhost:5173',
-      'Access-Control-Allow-Credentials': 'true',
-      Vary: 'Origin',
-    }
-    const scheduleError = (status: number, code: string, message: string) => apiError(status, code, message, undefined, scheduleCorsHeaders)
-    if (request.method === 'OPTIONS') return new Response(null, { headers: scheduleCorsHeaders })
+    const scheduleResponse = await handleScheduleRequest(request, env)
+    if (scheduleResponse) return scheduleResponse
+    if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
     const url = new URL(request.url)
     const path = url.pathname
@@ -183,96 +148,6 @@ export default {
       const id = path.split('/').pop()
       await env.DB.prepare('DELETE FROM tasks WHERE id = ?').bind(id).run()
       return json({ success: true })
-    }
-
-    // ----- Daily schedule -----
-    if (path === '/api/schedule' && request.method === 'GET') {
-      const owner = await scheduleOwner(request, env)
-      if (!owner) return scheduleError(401, 'schedule_unauthorized', 'Schedule access requires authentication')
-      const date = url.searchParams.get('date') || ''
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return scheduleError(400, 'invalid_schedule_date', 'Use date=YYYY-MM-DD')
-      const { results } = await env.DB.prepare(
-        `SELECT s.*, COALESCE(NULLIF(s.title, ''), t.title, 'Busy') AS title
-         FROM schedule_entries s LEFT JOIN tasks t ON t.id = s.task_id
-         WHERE s.owner_id = ? AND s.scheduled_date = ? ORDER BY s.start_time`,
-      ).bind(owner, date).all()
-      return json(results, 200, scheduleCorsHeaders)
-    }
-
-    if (path === '/api/schedule' && request.method === 'POST') {
-      const owner = await scheduleOwner(request, env)
-      if (!owner) return scheduleError(401, 'schedule_unauthorized', 'Schedule access requires authentication')
-      const payload = await readJson(request)
-      if (!payload.success) return scheduleError(400, 'invalid_json', 'Request body must be valid JSON')
-      const validation = validateCreateScheduleEntry(payload.data)
-      if (!validation.success) return json(validation.error, 400, scheduleCorsHeaders)
-      const body = validation.data
-      const id = crypto.randomUUID()
-      const now = new Date().toISOString()
-      const result = await env.DB.prepare(
-        `INSERT INTO schedule_entries
-         (id,owner_id,task_id,title,scheduled_date,start_time,end_time,timezone,locked,source,sync_status,created_at,updated_at)
-         SELECT ?,?,?,?,?,?,?,?,0,'local','local',?,?
-         WHERE NOT EXISTS (
-           SELECT 1 FROM schedule_entries
-           WHERE owner_id = ? AND scheduled_date = ? AND start_time < ? AND end_time > ?
-         )`,
-      ).bind(id, owner, body.task_id, body.title, body.scheduled_date, body.start_time, body.end_time, body.timezone,
-        now, now, owner, body.scheduled_date, body.end_time, body.start_time).run()
-      if (!result.meta.changes) return scheduleError(409, 'schedule_conflict', 'That time overlaps an existing schedule entry')
-      const entry = await env.DB.prepare('SELECT * FROM schedule_entries WHERE owner_id = ? AND id = ?').bind(owner, id).first()
-      return json(entry, 201, scheduleCorsHeaders)
-    }
-
-    if (path.match(/^\/api\/schedule\/[^/]+$/) && request.method === 'DELETE') {
-      const owner = await scheduleOwner(request, env)
-      if (!owner) return scheduleError(401, 'schedule_unauthorized', 'Schedule access requires authentication')
-      const id = path.split('/').pop()
-      const entry = await env.DB.prepare('SELECT * FROM schedule_entries WHERE owner_id = ? AND id = ?').bind(owner, id).first<ScheduleEntry>()
-      if (!entry) return scheduleError(404, 'schedule_entry_not_found', 'Schedule entry not found')
-      if (entry.source === 'google') return scheduleError(409, 'external_event_read_only', 'Google events must be changed through calendar sync')
-      await env.DB.prepare('DELETE FROM schedule_entries WHERE owner_id = ? AND id = ?').bind(owner, id).run()
-      return json({ success: true }, 200, scheduleCorsHeaders)
-    }
-
-    if (path === '/api/schedule/plan' && request.method === 'POST') {
-      const owner = await scheduleOwner(request, env)
-      if (!owner) return scheduleError(401, 'schedule_unauthorized', 'Schedule access requires authentication')
-      const payload = await readJson(request)
-      if (!payload.success) return scheduleError(400, 'invalid_json', 'Request body must be valid JSON')
-      const validation = validateDailyPlan(payload.data)
-      if (!validation.success) return json(validation.error, 400, scheduleCorsHeaders)
-      const body = validation.data
-      const [{ results: taskRows }, { results: existingRows }] = await Promise.all([
-        env.DB.prepare(`SELECT * FROM tasks WHERE status IN ('pending','in_progress') ORDER BY created_at`).all(),
-        env.DB.prepare('SELECT * FROM schedule_entries WHERE owner_id = ? AND scheduled_date = ? ORDER BY start_time').bind(owner, body.date).all(),
-      ])
-      const existing = existingRows as unknown as ScheduleEntry[]
-      const preserved = existing.filter((entry) => entry.locked || entry.source !== 'local')
-      const { planned, unscheduled } = buildDailyPlan(taskRows as unknown as Task[], preserved, body.date, body.workday_start, body.workday_end)
-      const now = new Date().toISOString()
-      const writes: D1PreparedStatement[] = [
-        env.DB.prepare(`DELETE FROM schedule_entries WHERE owner_id = ? AND scheduled_date = ? AND source = 'local' AND locked = 0`).bind(owner, body.date),
-      ]
-      for (const block of planned) {
-        writes.push(env.DB.prepare(
-          `INSERT INTO schedule_entries
-           (id,owner_id,task_id,title,scheduled_date,start_time,end_time,timezone,locked,source,sync_status,created_at,updated_at)
-           SELECT ?,?,?,?,?,?,?,?,0,'local','local',?,?
-           WHERE NOT EXISTS (
-             SELECT 1 FROM schedule_entries
-             WHERE owner_id = ? AND scheduled_date = ? AND start_time < ? AND end_time > ?
-           )`,
-        ).bind(crypto.randomUUID(), owner, block.task.id, block.task.title, body.date, block.start_time, block.end_time,
-          body.timezone, now, now, owner, body.date, block.end_time, block.start_time))
-      }
-      await env.DB.batch(writes)
-      const { results } = await env.DB.prepare(
-        `SELECT s.*, COALESCE(NULLIF(s.title, ''), t.title, 'Busy') AS title
-         FROM schedule_entries s LEFT JOIN tasks t ON t.id = s.task_id
-         WHERE s.owner_id = ? AND s.scheduled_date = ? ORDER BY s.start_time`,
-      ).bind(owner, body.date).all()
-      return json({ date: body.date, timezone: body.timezone, entries: results, unscheduled }, 200, scheduleCorsHeaders)
     }
 
     // ----- AI Endpoints -----
