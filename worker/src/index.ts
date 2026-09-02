@@ -4,36 +4,39 @@ import { clampMetricsLimit, logAiRequest } from './observability'
 import { validateCreateTask, validateTaskTextInput, validateUpdateTask } from '../../shared/contracts'
 import type { ApiError, CreateTaskInput } from '../../shared/contracts'
 import { handleScheduleRequest, type ScheduleEnv } from './routes/schedule'
+import { getScheduleOwner, isLocalDevRequest, type ScheduleAccessEnv } from './auth/scheduleAccess'
 
-interface Env extends ScheduleEnv {
+interface Env extends ScheduleEnv, ScheduleAccessEnv {
   AI: any
   OPENAI_API_KEY?: string
   OPENAI_MODEL?: string
   COMMAND_PARSER: DurableObjectNamespace
+  ERIS_ALLOWED_ORIGIN?: string
 }
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+const baseCorsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+  'Access-Control-Allow-Credentials': 'true',
+  Vary: 'Origin',
 }
 
-const json = (data: unknown, status = 200) =>
+const json = (data: unknown, status = 200, corsHeaders: Record<string, string> = baseCorsHeaders) =>
   new Response(JSON.stringify(data), {
     status,
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   })
 
-const notFound = () => new Response('Not Found', { status: 404, headers: corsHeaders })
+const notFound = (corsHeaders: Record<string, string>) => new Response('Not Found', { status: 404, headers: corsHeaders })
 
-const apiError = (status: number, code: string, error: string, details?: Record<string, string>) =>
-  json({ error, code, ...(details ? { details } : {}) } satisfies ApiError, status)
+const apiError = (status: number, code: string, error: string, corsHeaders: Record<string, string>, details?: Record<string, string>) =>
+  json({ error, code, ...(details ? { details } : {}) } satisfies ApiError, status, corsHeaders)
 
-const readJson = async (request: Request) => {
+const readJson = async (request: Request, corsHeaders: Record<string, string>) => {
   try {
     return { success: true as const, data: await request.json() }
   } catch {
-    return { success: false as const, response: apiError(400, 'invalid_json', 'Request body must be valid JSON') }
+    return { success: false as const, response: apiError(400, 'invalid_json', 'Request body must be valid JSON', corsHeaders) }
   }
 }
 
@@ -52,17 +55,40 @@ const readAiOptions = (value: unknown): AiRequestOptions | ApiError => {
 }
 
 const isApiError = (value: AiRequestOptions | ApiError): value is ApiError => 'code' in value
-const aiFailure = (error: unknown, fallback: string) =>
-  error instanceof AiPrivacyError ? apiError(400, error.code, 'OpenAI privacy consent is required for this request') : json({ error: fallback }, 502)
+const aiFailure = (error: unknown, fallback: string, corsHeaders: Record<string, string>) =>
+  error instanceof AiPrivacyError ? apiError(400, error.code, 'OpenAI privacy consent is required for this request', corsHeaders) : json({ error: fallback }, 502, corsHeaders)
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const scheduleResponse = await handleScheduleRequest(request, env)
-    if (scheduleResponse) return scheduleResponse
-    if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
-
     const url = new URL(request.url)
     const path = url.pathname
+    const origin = request.headers.get('Origin')
+    const localDev = isLocalDevRequest(request, env)
+    const allowedOrigin = env.ERIS_ALLOWED_ORIGIN || 'http://localhost:5173'
+    if (origin && origin !== allowedOrigin && !(localDev && origin === 'http://localhost:5173')) {
+      return apiError(403, 'origin_not_allowed', 'Origin is not allowed', baseCorsHeaders)
+    }
+    const corsHeaders = { ...baseCorsHeaders, 'Access-Control-Allow-Origin': origin || allowedOrigin }
+    if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
+
+    const owner = await getScheduleOwner(request, env)
+    if (!owner) return apiError(401, 'authentication_required', 'Authentication is required', corsHeaders)
+    if (!localDev && !env.ERIS_ALLOWED_ORIGIN) {
+      return apiError(503, 'access_not_configured', 'Access configuration is incomplete', corsHeaders)
+    }
+
+    if (path === '/api/auth/session' && request.method === 'GET') {
+      return json({ authenticated: true, owner }, 200, corsHeaders)
+    }
+    if (path === '/api/auth/login' && request.method === 'GET') {
+      if (!env.ERIS_ALLOWED_ORIGIN) return apiError(503, 'auth_return_not_configured', 'Authentication return is not configured', corsHeaders)
+      const returnUrl = new URL(env.ERIS_ALLOWED_ORIGIN)
+      returnUrl.searchParams.set('access', 'granted')
+      return Response.redirect(returnUrl.toString(), 302)
+    }
+
+    const scheduleResponse = await handleScheduleRequest(request, env, owner, corsHeaders)
+    if (scheduleResponse) return scheduleResponse
 
     // Root ping
     if (path === '/') return new Response('Eris Worker is running', { status: 200, headers: corsHeaders })
@@ -70,14 +96,14 @@ export default {
     // ----- Tasks CRUD -----
     if (path === '/api/tasks' && request.method === 'GET') {
       const { results } = await env.DB.prepare('SELECT * FROM tasks ORDER BY created_at DESC').all()
-      return json(results)
+      return json(results, 200, corsHeaders)
     }
 
     if (path === '/api/tasks' && request.method === 'POST') {
-      const payload = await readJson(request)
+      const payload = await readJson(request, corsHeaders)
       if (!payload.success) return payload.response
       const validation = validateCreateTask(payload.data)
-      if (!validation.success) return json(validation.error, 400)
+      if (!validation.success) return json(validation.error, 400, corsHeaders)
       const body = validation.data
       const id = crypto.randomUUID()
       const now = new Date().toISOString()
@@ -101,24 +127,24 @@ export default {
         )
         .run()
       const task = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?').bind(id).first()
-      return json(task, 201)
+      return json(task, 201, corsHeaders)
     }
 
     if (path.match(/^\/api\/tasks\/[^/]+$/) && request.method === 'GET') {
       const id = path.split('/').pop()
       const task = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?').bind(id).first()
-      return task ? json(task) : apiError(404, 'task_not_found', 'Task not found')
+      return task ? json(task, 200, corsHeaders) : apiError(404, 'task_not_found', 'Task not found', corsHeaders)
     }
 
     if (path.match(/^\/api\/tasks\/[^/]+$/) && request.method === 'PUT') {
       const id = path.split('/').pop()
-      const payload = await readJson(request)
+      const payload = await readJson(request, corsHeaders)
       if (!payload.success) return payload.response
       const existing = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?').bind(id).first()
-      if (!existing) return apiError(404, 'task_not_found', 'Task not found')
+      if (!existing) return apiError(404, 'task_not_found', 'Task not found', corsHeaders)
 
       const validation = validateUpdateTask(payload.data, existing as unknown as CreateTaskInput)
-      if (!validation.success) return json(validation.error, 400)
+      if (!validation.success) return json(validation.error, 400, corsHeaders)
 
       const now = new Date().toISOString()
       const merged = validation.data
@@ -141,13 +167,13 @@ export default {
         )
         .run()
       const task = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?').bind(id).first()
-      return task ? json(task) : json({ error: 'Task not found' }, 404)
+      return task ? json(task, 200, corsHeaders) : json({ error: 'Task not found' }, 404, corsHeaders)
     }
 
     if (path.match(/^\/api\/tasks\/[^/]+$/) && request.method === 'DELETE') {
       const id = path.split('/').pop()
       await env.DB.prepare('DELETE FROM tasks WHERE id = ?').bind(id).run()
-      return json({ success: true })
+      return json({ success: true }, 200, corsHeaders)
     }
 
     // ----- AI Endpoints -----
@@ -156,15 +182,15 @@ export default {
       try {
         body = (await request.json()) as { input?: unknown; sessionId?: unknown }
       } catch {
-        return json({ error: 'Invalid JSON body' }, 400)
+        return json({ error: 'Invalid JSON body' }, 400, corsHeaders)
       }
       const input = typeof body.input === 'string' ? body.input.trim() : ''
       if (!input || input.length > 4000) {
-        return json({ error: 'Input must contain between 1 and 4000 characters' }, 400)
+        return json({ error: 'Input must contain between 1 and 4000 characters' }, 400, corsHeaders)
       }
       const sessionId = typeof body.sessionId === 'string' ? body.sessionId : undefined
       const options = readAiOptions(body)
-      if (isApiError(options)) return json(options, 400)
+      if (isApiError(options)) return json(options, 400, corsHeaders)
       const startedAt = Date.now()
       try {
         const doName = sessionId?.trim() || 'global-session'
@@ -184,7 +210,7 @@ export default {
               errorCode: typeof failure?.code === 'string' ? failure.code : 'parse_task_invalid',
               model: 'unknown',
             })
-            return json(failure, 400)
+            return json(failure, 400, corsHeaders)
           }
           throw new Error(`Command parser failed with HTTP ${doRes.status}`)
         }
@@ -198,7 +224,7 @@ export default {
           durationMs: Number(result?.telemetry?.duration_ms) || Date.now() - startedAt,
           model: result?.telemetry?.model ? `${result?.telemetry?.provider || 'workers-ai'}:${result.telemetry.model}` : 'unknown',
         })
-        return json(result)
+        return json(result, 200, corsHeaders)
       } catch (err: any) {
         await logAiRequest(env.DB, {
           kind: 'parse-task',
@@ -207,17 +233,17 @@ export default {
           errorCode: 'parse_task_failed',
           model: 'unknown',
         })
-        return aiFailure(err, 'parse-task failed')
+        return aiFailure(err, 'parse-task failed', corsHeaders)
       }
     }
 
     if (path === '/api/ai/suggest-priority' && request.method === 'POST') {
-      const payload = await readJson(request)
+      const payload = await readJson(request, corsHeaders)
       if (!payload.success) return payload.response
       const validation = validateTaskTextInput(payload.data)
-      if (!validation.success) return json(validation.error, 400)
+      if (!validation.success) return json(validation.error, 400, corsHeaders)
       const options = readAiOptions(payload.data)
-      if (isApiError(options)) return json(options, 400)
+      if (isApiError(options)) return json(options, 400, corsHeaders)
       const startedAt = Date.now()
       try {
         const response = await aiService.suggestPriorityWithMeta(validation.data, env, options)
@@ -228,7 +254,7 @@ export default {
           model: `${response.provider}:${response.model}`,
         })
         const result = response.data
-        return json(result)
+        return json(result, 200, corsHeaders)
       } catch (err: any) {
         await logAiRequest(env.DB, {
           kind: 'suggest-priority',
@@ -236,7 +262,7 @@ export default {
           durationMs: Date.now() - startedAt,
           errorCode: 'suggest_priority_failed',
         })
-        return aiFailure(err, 'suggest-priority failed')
+        return aiFailure(err, 'suggest-priority failed', corsHeaders)
       }
     }
 
@@ -245,14 +271,14 @@ export default {
       try {
         body = (await request.json()) as { input?: unknown }
       } catch {
-        return json({ error: 'Invalid JSON body' }, 400)
+        return json({ error: 'Invalid JSON body' }, 400, corsHeaders)
       }
       const input = typeof body.input === 'string' ? body.input.trim() : ''
       if (!input || input.length > 4000) {
-        return json({ error: 'Input must contain between 1 and 4000 characters' }, 400)
+        return json({ error: 'Input must contain between 1 and 4000 characters' }, 400, corsHeaders)
       }
       const options = readAiOptions(body)
-      if (isApiError(options)) return json(options, 400)
+      if (isApiError(options)) return json(options, 400, corsHeaders)
       const startedAt = Date.now()
       try {
         // Step 1: Parse NL into structured fields
@@ -322,7 +348,7 @@ export default {
             .map((response) => `${response.provider}:${response.model}`)
             .join(', '),
         })
-        return json({ task, parsed, priority: priorityRes, category: categoryRes, estimate: estimateRes }, 201)
+        return json({ task, parsed, priority: priorityRes, category: categoryRes, estimate: estimateRes }, 201, corsHeaders)
       } catch (err: any) {
         await logAiRequest(env.DB, {
           kind: 'full-assist',
@@ -330,17 +356,17 @@ export default {
           durationMs: Date.now() - startedAt,
           errorCode: 'full_assist_failed',
         })
-        return aiFailure(err, 'full-assist failed')
+        return aiFailure(err, 'full-assist failed', corsHeaders)
       }
     }
 
     if (path === '/api/ai/estimate-duration' && request.method === 'POST') {
-      const payload = await readJson(request)
+      const payload = await readJson(request, corsHeaders)
       if (!payload.success) return payload.response
       const validation = validateTaskTextInput(payload.data)
-      if (!validation.success) return json(validation.error, 400)
+      if (!validation.success) return json(validation.error, 400, corsHeaders)
       const options = readAiOptions(payload.data)
-      if (isApiError(options)) return json(options, 400)
+      if (isApiError(options)) return json(options, 400, corsHeaders)
       const startedAt = Date.now()
       try {
         const response = await aiService.estimateDurationWithMeta(validation.data, env, options)
@@ -351,7 +377,7 @@ export default {
           model: `${response.provider}:${response.model}`,
         })
         const result = response.data
-        return json(result)
+        return json(result, 200, corsHeaders)
       } catch (err: any) {
         await logAiRequest(env.DB, {
           kind: 'estimate-duration',
@@ -359,17 +385,17 @@ export default {
           durationMs: Date.now() - startedAt,
           errorCode: 'estimate_duration_failed',
         })
-        return aiFailure(err, 'estimate-duration failed')
+        return aiFailure(err, 'estimate-duration failed', corsHeaders)
       }
     }
 
     if (path === '/api/ai/categorize-task' && request.method === 'POST') {
-      const payload = await readJson(request)
+      const payload = await readJson(request, corsHeaders)
       if (!payload.success) return payload.response
       const validation = validateTaskTextInput(payload.data)
-      if (!validation.success) return json(validation.error, 400)
+      if (!validation.success) return json(validation.error, 400, corsHeaders)
       const options = readAiOptions(payload.data)
-      if (isApiError(options)) return json(options, 400)
+      if (isApiError(options)) return json(options, 400, corsHeaders)
       const startedAt = Date.now()
       try {
         const response = await aiService.categorizeTaskWithMeta(validation.data, env, options)
@@ -380,7 +406,7 @@ export default {
           model: `${response.provider}:${response.model}`,
         })
         const result = response.data
-        return json(result)
+        return json(result, 200, corsHeaders)
       } catch (err: any) {
         await logAiRequest(env.DB, {
           kind: 'categorize-task',
@@ -388,7 +414,7 @@ export default {
           durationMs: Date.now() - startedAt,
           errorCode: 'categorize_task_failed',
         })
-        return aiFailure(err, 'categorize-task failed')
+        return aiFailure(err, 'categorize-task failed', corsHeaders)
       }
     }
 
@@ -404,7 +430,7 @@ export default {
          GROUP BY kind
          ORDER BY total DESC`,
       ).all()
-      return json({ updated_at: new Date().toISOString(), metrics: results })
+      return json({ updated_at: new Date().toISOString(), metrics: results }, 200, corsHeaders)
     }
 
     if (path === '/api/metrics/ai/recent' && request.method === 'GET') {
@@ -417,10 +443,10 @@ export default {
       )
         .bind(limit)
         .all()
-      return json({ updated_at: new Date().toISOString(), requests: results })
+      return json({ updated_at: new Date().toISOString(), requests: results }, 200, corsHeaders)
     }
 
-    return notFound()
+    return notFound(corsHeaders)
   },
 }
 

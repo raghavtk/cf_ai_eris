@@ -12,6 +12,48 @@ import type { ParsedTask } from './components/NaturalLanguageInput'
 import Schedule from './pages/Schedule'
 import { taskService } from './services/taskService'
 import type { Task } from './services/taskService'
+import { authService } from './services/apiClient'
+
+const SESSION_MARKER = 'eris-owner-session'
+
+function PublicPreview({ checking }: { checking: boolean }) {
+  return (
+    <main className='preview-shell'>
+      <nav className='preview-nav'>
+        <div className='preview-brand'><span className='brand-mark'>E</span>Eris</div>
+        <a className='owner-link' href={authService.loginUrl}>{checking ? 'Checking access…' : 'Owner sign in'}</a>
+      </nav>
+      <section className='preview-hero'>
+        <div className='preview-copy'>
+          <p className='eyebrow'>PRIVATE AI PRODUCTIVITY SYSTEM</p>
+          <h1>Turn scattered intentions into a day you can actually finish.</h1>
+          <p className='preview-lede'>Eris combines natural-language task capture, AI-assisted prioritization, and conflict-aware daily planning in one focused workspace.</p>
+          <div className='preview-actions'>
+            <a className='primary-cta' href={authService.loginUrl}>Owner sign in</a>
+            <a className='secondary-cta' href='https://github.com/raghavtk/cf_ai_eris' target='_blank' rel='noreferrer'>View source</a>
+          </div>
+          <p className='privacy-note'>The live workspace is private. Everything shown here is representative sample content.</p>
+        </div>
+        <div className='product-preview' aria-label='Sample Eris daily plan'>
+          <div className='preview-window-bar'><span /><span /><span /><strong>Today · August 28</strong></div>
+          <div className='preview-dashboard'>
+            <div className='sample-command'>Plan my afternoon around the research review <kbd>↵</kbd></div>
+            <div className='sample-grid'>
+              <article><span className='sample-time'>1:00 PM</span><h3>Research review</h3><p>High priority · 90 min</p></article>
+              <article><span className='sample-time'>2:30 PM</span><h3>Project deep work</h3><p>Focus block · 120 min</p></article>
+              <article><span className='sample-time'>4:30 PM</span><h3>Weekly planning</h3><p>Medium priority · 30 min</p></article>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className='feature-strip'>
+        <article><span>01</span><h2>Capture naturally</h2><p>Describe work in plain language and turn it into structured tasks.</p></article>
+        <article><span>02</span><h2>Prioritize thoughtfully</h2><p>Use AI assistance without sending sensitive context unless explicitly allowed.</p></article>
+        <article><span>03</span><h2>Plan realistically</h2><p>Build conflict-aware schedules that preserve locked calendar commitments.</p></article>
+      </section>
+    </main>
+  )
+}
 
 const mapTaskToRow = (task: Task): TaskRow => ({
   id: task.id,
@@ -157,6 +199,35 @@ function AppContent() {
 }
 
 function App() {
+  const returnedFromAccess = new URLSearchParams(window.location.search).get('access') === 'granted'
+  const shouldVerify = (import.meta.env.DEV && import.meta.env.MODE !== 'test') || returnedFromAccess || localStorage.getItem(SESSION_MARKER) === 'active'
+  const [session, setSession] = useState<'public' | 'checking' | 'authenticated'>(shouldVerify ? 'checking' : 'public')
+
+  useEffect(() => {
+    const requireAuthentication = () => {
+      localStorage.removeItem(SESSION_MARKER)
+      setSession('public')
+    }
+    window.addEventListener('eris:authentication-required', requireAuthentication)
+    return () => window.removeEventListener('eris:authentication-required', requireAuthentication)
+  }, [])
+
+  useEffect(() => {
+    if (!shouldVerify) return
+    authService.session()
+      .then(() => {
+        localStorage.setItem(SESSION_MARKER, 'active')
+        setSession('authenticated')
+        if (returnedFromAccess) window.history.replaceState({}, '', window.location.pathname)
+      })
+      .catch(() => {
+        localStorage.removeItem(SESSION_MARKER)
+        setSession('public')
+      })
+  }, [returnedFromAccess, shouldVerify])
+
+  if (session !== 'authenticated') return <PublicPreview checking={session === 'checking'} />
+
   return (
     <div className='min-h-screen bg-[#0f172a] flex flex-col'>
       <Navbar />

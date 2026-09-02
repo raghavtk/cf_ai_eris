@@ -1,16 +1,9 @@
 import { validateCreateScheduleEntry, validateDailyPlan } from '../../../shared/contracts'
 import type { ApiError, ScheduleEntry, Task } from '../../../shared/contracts'
-import { getScheduleOwner, type ScheduleAccessEnv } from '../auth/scheduleAccess'
 import { buildDailyPlan } from '../scheduler'
 
-export interface ScheduleEnv extends ScheduleAccessEnv {
+export interface ScheduleEnv {
   DB: D1Database
-  ERIS_ALLOWED_ORIGIN?: string
-}
-
-const baseCorsHeaders = {
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
 }
 
 const responseJson = (data: unknown, status: number, headers: Record<string, string>) =>
@@ -30,25 +23,14 @@ const selectDay = (db: D1Database, owner: string, date: string) => db.prepare(
    WHERE s.owner_id = ? AND s.scheduled_date = ? ORDER BY s.start_time`,
 ).bind(owner, date).all()
 
-export async function handleScheduleRequest(request: Request, env: ScheduleEnv): Promise<Response | null> {
+export async function handleScheduleRequest(
+  request: Request,
+  env: ScheduleEnv,
+  owner: string,
+  corsHeaders: Record<string, string>,
+): Promise<Response | null> {
   const url = new URL(request.url)
   if (!url.pathname.startsWith('/api/schedule')) return null
-
-  const origin = request.headers.get('Origin')
-  const allowedOrigins = new Set(['http://localhost:5173', ...(env.ERIS_ALLOWED_ORIGIN ? [env.ERIS_ALLOWED_ORIGIN] : [])])
-  if (origin && !allowedOrigins.has(origin)) {
-    return responseError(403, 'origin_not_allowed', 'Origin is not allowed', baseCorsHeaders)
-  }
-  const corsHeaders = {
-    ...baseCorsHeaders,
-    'Access-Control-Allow-Origin': origin || env.ERIS_ALLOWED_ORIGIN || 'http://localhost:5173',
-    'Access-Control-Allow-Credentials': 'true',
-    Vary: 'Origin',
-  }
-  if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
-
-  const owner = await getScheduleOwner(request, env)
-  if (!owner) return responseError(401, 'schedule_unauthorized', 'Schedule access requires authentication', corsHeaders)
 
   if (url.pathname === '/api/schedule' && request.method === 'GET') {
     const date = url.searchParams.get('date') || ''

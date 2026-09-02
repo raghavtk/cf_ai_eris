@@ -22,10 +22,15 @@ class_name = "CommandParserDO"
 tag = "v1-sqlite"
 new_sqlite_classes = ["CommandParserDO"]
 
-# Production schedule routes fail closed unless this is set to the identity
-# asserted by Cloudflare Access. Configure it as a deployed Worker variable.
+# Every production route fails closed unless Cloudflare Access and these values
+# are configured. Keep the email and exact public frontend origin deployment-specific.
 # [vars]
 # ERIS_ALLOWED_EMAIL = "you@example.com"
+# ERIS_ALLOWED_ORIGIN = "https://eris.example.com"
+# TEAM_DOMAIN = "https://your-team.cloudflareaccess.com"
+# POLICY_AUD = "your-access-application-audience-tag"
+# Set ERIS_LOCAL_DEV=true only in worker/.dev.vars. The Worker also requires a
+# loopback hostname, and production must never define this variable.
 
 [observability]
 enabled = false
