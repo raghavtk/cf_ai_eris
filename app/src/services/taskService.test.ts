@@ -35,7 +35,9 @@ describe('taskService', () => {
 
     const result = await taskService.getAll()
     expect(result).toEqual(mockTasks)
-    expect(global.fetch).toHaveBeenCalledWith('http://localhost:8787/api/tasks')
+    expect(global.fetch).toHaveBeenCalledWith('http://localhost:8787/api/tasks', {
+      credentials: 'include', headers: {},
+    })
   })
 
   it('should create a task', async () => {
@@ -55,9 +57,11 @@ describe('taskService', () => {
   })
 
   it('should delete a task', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    fetchMock.mockResolvedValueOnce(Response.json({ success: true }))
     await taskService.delete('123')
-    expect(global.fetch).toHaveBeenCalledWith('http://localhost:8787/api/tasks/123', { method: 'DELETE' })
+    expect(global.fetch).toHaveBeenCalledWith('http://localhost:8787/api/tasks/123', {
+      method: 'DELETE', credentials: 'include', headers: {},
+    })
   })
 
   it('surfaces structured API validation errors', async () => {

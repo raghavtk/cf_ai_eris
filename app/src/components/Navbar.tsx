@@ -11,7 +11,7 @@ import {
   MenuItem,
   Button,
 } from '@mui/material';
-import MenuIcon from '@mui/icons-material/Menu';
+import { Menu as MenuIcon } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const navItems = [

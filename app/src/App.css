@@ -3,6 +3,31 @@
 	text-align: center;
 }
 
+.preview-shell { min-height: 100vh; color: #eef2ff; background: radial-gradient(circle at 82% 12%, rgba(14,165,233,.16), transparent 30%), radial-gradient(circle at 10% 70%, rgba(99,102,241,.12), transparent 34%), #080d1a; text-align: left; }
+.preview-nav { max-width: 1180px; margin: 0 auto; padding: 24px 28px; display: flex; align-items: center; justify-content: space-between; }
+.preview-brand { display: flex; align-items: center; gap: 11px; font-weight: 760; font-size: 21px; letter-spacing: .05em; }
+.brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: #07111e; background: linear-gradient(135deg,#67e8f9,#818cf8); font-weight: 900; }
+.owner-link,.primary-cta,.secondary-cta { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 11px 18px; text-decoration: none; font-weight: 700; transition: transform .2s, border-color .2s, background .2s; }
+.owner-link { color: #dbeafe; border: 1px solid rgba(148,163,184,.3); background: rgba(15,23,42,.6); }
+.owner-link:hover,.secondary-cta:hover { transform: translateY(-1px); border-color: rgba(103,232,249,.65); color: white; }
+.preview-hero { max-width: 1180px; margin: 0 auto; padding: 84px 28px 100px; display: grid; grid-template-columns: .9fr 1.1fr; gap: 70px; align-items: center; }
+.eyebrow { color: #67e8f9; font-size: 12px; font-weight: 800; letter-spacing: .18em; }
+.preview-copy h1 { max-width: 650px; margin: 18px 0 24px; font-size: clamp(44px,5vw,72px); line-height: .98; letter-spacing: -.045em; }
+.preview-lede { max-width: 590px; color: #aebbd0; font-size: 19px; line-height: 1.7; }
+.preview-actions { display: flex; gap: 12px; margin: 32px 0 20px; }
+.primary-cta { color: #07111e; background: linear-gradient(135deg,#67e8f9,#818cf8); }
+.primary-cta:hover { transform: translateY(-2px); color: #07111e; }
+.secondary-cta { color: #e2e8f0; border: 1px solid rgba(148,163,184,.3); }
+.privacy-note { color: #718198; font-size: 13px; }
+.product-preview { border: 1px solid rgba(148,163,184,.2); border-radius: 22px; overflow: hidden; background: rgba(15,23,42,.76); box-shadow: 0 32px 80px rgba(0,0,0,.4); transform: perspective(1100px) rotateY(-3deg) rotateX(2deg); }
+.preview-window-bar { display: flex; align-items: center; gap: 7px; padding: 14px 17px; border-bottom: 1px solid rgba(148,163,184,.14); color: #94a3b8; font-size: 12px; }
+.preview-window-bar span { width: 8px; height: 8px; border-radius: 50%; background: #334155; }.preview-window-bar strong { margin-left: auto; }
+.preview-dashboard { padding: 25px; }.sample-command { padding: 15px 17px; border: 1px solid rgba(103,232,249,.28); border-radius: 12px; color: #cbd5e1; background: rgba(8,15,30,.8); }.sample-command kbd { float: right; color: #67e8f9; }
+.sample-grid { display: grid; gap: 12px; margin-top: 18px; }.sample-grid article { padding: 18px; border-radius: 14px; background: linear-gradient(110deg,rgba(30,41,59,.88),rgba(30,41,59,.46)); border-left: 3px solid #818cf8; }.sample-grid article:nth-child(2) { border-color: #22d3ee; }.sample-grid article:nth-child(3) { border-color: #a78bfa; }.sample-grid h3 { margin: 7px 0 3px; }.sample-grid p,.sample-time { color: #8998ad; margin: 0; font-size: 13px; }
+.feature-strip { max-width: 1180px; margin: 0 auto; padding: 0 28px 90px; display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; }.feature-strip article { padding: 26px; border-top: 1px solid rgba(148,163,184,.24); }.feature-strip span { color: #67e8f9; font-size: 12px; font-weight: 800; }.feature-strip h2 { font-size: 18px; margin: 14px 0 8px; }.feature-strip p { color: #8998ad; line-height: 1.6; margin: 0; }
+@media (max-width: 850px) { .preview-hero { grid-template-columns: 1fr; padding-top: 48px; gap: 45px; }.product-preview { transform: none; }.feature-strip { grid-template-columns: 1fr; }.preview-copy h1 { font-size: 48px; } }
+@media (max-width: 520px) { .preview-nav { padding: 18px; }.preview-hero { padding: 40px 18px 70px; }.preview-copy h1 { font-size: 39px; }.preview-actions { flex-direction: column; }.feature-strip { padding: 0 18px 60px; } }
+
 /* Navigation Styles */
 .navbar {
 	background: linear-gradient(135deg, #333641 0%, #2c2b30 100%);

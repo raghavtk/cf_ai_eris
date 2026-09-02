@@ -1,18 +1,13 @@
 import type { AiResult, ParseTaskResponse, TaskTextInput } from '../../../shared/contracts'
-
-const PROD_API_BASE = 'https://productivity-assistant-worker.raghavtkesari.workers.dev'
-const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? PROD_API_BASE : 'http://localhost:8787')
+import { apiFetch, readApiResponse } from './apiClient'
 
 type PriorityInput = TaskTextInput & { due_date: string }
 
-const readJson = async <T>(response: Response, message: string): Promise<T> => {
-  if (!response.ok) throw new Error(message)
-  return response.json() as Promise<T>
-}
+const readJson = <T>(response: Response, message: string) => readApiResponse<T>(response, message)
 
 export const aiService = {
   parseTask: async (input: string, sessionId?: string) => {
-    const res = await fetch(`${API_BASE}/api/ai/parse-task`, {
+    const res = await apiFetch('/api/ai/parse-task', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ input, sessionId }),
@@ -21,7 +16,7 @@ export const aiService = {
   },
 
   suggestPriority: async (task: PriorityInput) => {
-    const res = await fetch(`${API_BASE}/api/ai/suggest-priority`, {
+    const res = await apiFetch('/api/ai/suggest-priority', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(task),
@@ -30,7 +25,7 @@ export const aiService = {
   },
 
   estimateDuration: async (task: TaskTextInput) => {
-    const res = await fetch(`${API_BASE}/api/ai/estimate-duration`, {
+    const res = await apiFetch('/api/ai/estimate-duration', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(task),
@@ -39,7 +34,7 @@ export const aiService = {
   },
 
   categorizeTask: async (task: TaskTextInput) => {
-    const res = await fetch(`${API_BASE}/api/ai/categorize-task`, {
+    const res = await apiFetch('/api/ai/categorize-task', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(task),

@@ -18,6 +18,7 @@ const createEnv = (doResponse: Response) => {
     env: {
       DB: db,
       AI: {},
+      ERIS_LOCAL_DEV: 'true',
       COMMAND_PARSER: {
         idFromName: vi.fn(() => 'session-id'),
         get: vi.fn(() => ({ fetch })),
@@ -32,7 +33,7 @@ describe('parse-task endpoint telemetry', () => {
   it('returns 400 for invalid input without invoking the Durable Object', async () => {
     const { env, fetch, db } = createEnv(Response.json({ error: 'unused' }, { status: 500 }))
     const response = await worker.fetch(
-      new Request('http://worker/api/ai/parse-task', {
+      new Request('http://localhost:8787/api/ai/parse-task', {
         method: 'POST',
         body: JSON.stringify({ input: '   ' }),
       }),
@@ -48,7 +49,7 @@ describe('parse-task endpoint telemetry', () => {
     const sensitiveInput = 'Private medical appointment tomorrow'
     const { env, db } = createEnv(Response.json({ error: 'model unavailable' }, { status: 502 }))
     const response = await worker.fetch(
-      new Request('http://worker/api/ai/parse-task', {
+      new Request('http://localhost:8787/api/ai/parse-task', {
         method: 'POST',
         body: JSON.stringify({ input: sensitiveInput, sessionId: 'browser-session' }),
       }),
@@ -72,7 +73,7 @@ describe('parse-task endpoint telemetry', () => {
       }),
     )
     const response = await worker.fetch(
-      new Request('http://worker/api/ai/parse-task', {
+      new Request('http://localhost:8787/api/ai/parse-task', {
         method: 'POST',
         body: JSON.stringify({ input: 'Call mom' }),
       }),
@@ -91,7 +92,7 @@ describe('task API validation', () => {
   it('returns a consistent error for malformed JSON', async () => {
     const { env, db } = createEnv(Response.json({ error: 'unused' }))
     const response = await worker.fetch(
-      new Request('http://worker/api/tasks', { method: 'POST', body: '{' }),
+      new Request('http://localhost:8787/api/tasks', { method: 'POST', body: '{' }),
       env as any,
     )
 
@@ -106,7 +107,7 @@ describe('task API validation', () => {
   it('rejects invalid task fields before writing to D1', async () => {
     const { env, db } = createEnv(Response.json({ error: 'unused' }))
     const response = await worker.fetch(
-      new Request('http://worker/api/tasks', {
+      new Request('http://localhost:8787/api/tasks', {
         method: 'POST',
         body: JSON.stringify({ title: 'Ship release', priority: 'urgent' }),
       }),
@@ -138,7 +139,7 @@ describe('task API validation', () => {
     })
 
     const response = await worker.fetch(
-      new Request('http://worker/api/tasks', {
+      new Request('http://localhost:8787/api/tasks', {
         method: 'POST',
         body: JSON.stringify({ title: '  Ship release  ' }),
       }),
@@ -158,7 +159,7 @@ describe('AI enrichment API validation', () => {
   it('returns a structured 400 before invoking AI or telemetry', async () => {
     const { env, db } = createEnv(Response.json({ error: 'unused' }))
     const response = await worker.fetch(
-      new Request('http://worker/api/ai/estimate-duration', {
+      new Request('http://localhost:8787/api/ai/estimate-duration', {
         method: 'POST',
         body: JSON.stringify({ title: '   ' }),
       }),
@@ -218,5 +219,79 @@ describe('schedule API safety', () => {
       headers: { Origin: 'https://attacker.example' },
     }), env as any)
     expect(response.status).toBe(403)
+  })
+})
+
+describe('single-user access boundary', () => {
+  it.each([
+    ['tasks', '/api/tasks'],
+    ['AI', '/api/ai/parse-task'],
+    ['metrics', '/api/metrics/ai/summary'],
+    ['schedule', '/api/schedule?date=2026-08-27'],
+    ['session', '/api/auth/session'],
+    ['root', '/'],
+  ])('rejects unauthenticated production %s requests before using private bindings', async (_name, path) => {
+    const { env, db, fetch } = createEnv(Response.json({ error: 'unused' }))
+    const request = new Request(`https://worker.example${path}`)
+    Object.defineProperty(request, 'cf', { value: { colo: 'IAD' } })
+    const response = await worker.fetch(request, env as any)
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Authentication is required',
+      code: 'authentication_required',
+    })
+    expect(db.prepare).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('allows credentialed preflight without authenticating and never uses wildcard CORS', async () => {
+    const { env, db } = createEnv(Response.json({ error: 'unused' }))
+    Object.assign(env, { ERIS_ALLOWED_ORIGIN: 'https://eris.example' })
+    const request = new Request('https://worker.example/api/tasks', {
+      method: 'OPTIONS', headers: { Origin: 'https://eris.example' },
+    })
+    Object.defineProperty(request, 'cf', { value: { colo: 'IAD' } })
+    const response = await worker.fetch(request, env as any)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://eris.example')
+    expect(response.headers.get('Access-Control-Allow-Credentials')).toBe('true')
+    expect(response.headers.get('Access-Control-Allow-Origin')).not.toBe('*')
+    expect(db.prepare).not.toHaveBeenCalled()
+  })
+
+  it('returns the local owner from the session endpoint during local development', async () => {
+    const { env } = createEnv(Response.json({ error: 'unused' }))
+    const response = await worker.fetch(new Request('http://localhost:8787/api/auth/session'), env as any)
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ authenticated: true, owner: 'local-dev' })
+  })
+
+  it('does not infer local access merely because Cloudflare metadata is absent', async () => {
+    const { env, db } = createEnv(Response.json({ error: 'unused' }))
+    delete (env as { ERIS_LOCAL_DEV?: string }).ERIS_LOCAL_DEV
+    const response = await worker.fetch(new Request('http://localhost:8787/api/tasks'), env as any)
+
+    expect(response.status).toBe(401)
+    expect(db.prepare).not.toHaveBeenCalled()
+  })
+
+  it('does not allow the local flag on a non-loopback hostname', async () => {
+    const { env, db } = createEnv(Response.json({ error: 'unused' }))
+    const response = await worker.fetch(new Request('https://worker.example/api/tasks'), env as any)
+
+    expect(response.status).toBe(401)
+    expect(db.prepare).not.toHaveBeenCalled()
+  })
+
+  it('uses only the configured origin for the login return', async () => {
+    const { env } = createEnv(Response.json({ error: 'unused' }))
+    Object.assign(env, { ERIS_ALLOWED_ORIGIN: 'https://eris.example/app' })
+    const response = await worker.fetch(
+      new Request('http://localhost:8787/api/auth/login?returnTo=https://attacker.example'), env as any,
+    )
+    expect(response.status).toBe(302)
+    expect(response.headers.get('Location')).toBe('https://eris.example/app?access=granted')
   })
 })

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Box, Button, Chip, CircularProgress, Paper, Stack, Typography } from '@mui/material'
-import LockIcon from '@mui/icons-material/Lock'
+import { Lock as LockIcon } from '@mui/icons-material'
 import type { ScheduleEntry } from '../../../shared/contracts'
 import { blockPosition, visibleHourRange } from '../pages/scheduleLayout'
 
