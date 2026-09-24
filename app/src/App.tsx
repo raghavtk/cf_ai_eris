@@ -10,6 +10,7 @@ import type { TaskRow } from './components/TaskTable'
 import NaturalLanguageInput from './components/NaturalLanguageInput'
 import type { ParsedTask } from './components/NaturalLanguageInput'
 import Schedule from './pages/Schedule'
+import GitHub from './pages/GitHub'
 import { taskService } from './services/taskService'
 import type { Task } from './services/taskService'
 import { authService } from './services/apiClient'
@@ -193,6 +194,7 @@ function AppContent() {
         <Route path='/tasks' element={<Tasks />} />
         <Route path='/view-tasks' element={<ViewTasks />} />
         <Route path='/schedule' element={<Schedule />} />
+        <Route path='/github' element={<GitHub />} />
       </Routes>
     </AnimatePresence>
   )

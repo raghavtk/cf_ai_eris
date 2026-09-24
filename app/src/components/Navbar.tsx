@@ -18,6 +18,7 @@ const navItems = [
   { label: 'Create Task', path: '/tasks' },
   { label: 'View Tasks', path: '/view-tasks' },
   { label: 'Schedule', path: '/schedule' },
+  { label: 'GitHub', path: '/github' },
 ];
 
 const Navbar = () => {

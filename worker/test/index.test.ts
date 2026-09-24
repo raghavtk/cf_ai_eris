@@ -228,6 +228,7 @@ describe('single-user access boundary', () => {
     ['AI', '/api/ai/parse-task'],
     ['metrics', '/api/metrics/ai/summary'],
     ['schedule', '/api/schedule?date=2026-08-27'],
+    ['GitHub', '/api/github/connections'],
     ['session', '/api/auth/session'],
     ['root', '/'],
   ])('rejects unauthenticated production %s requests before using private bindings', async (_name, path) => {

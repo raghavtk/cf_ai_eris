@@ -5,8 +5,11 @@ import { validateCreateTask, validateTaskTextInput, validateUpdateTask } from '.
 import type { ApiError, CreateTaskInput } from '../../shared/contracts'
 import { handleScheduleRequest, type ScheduleEnv } from './routes/schedule'
 import { getScheduleOwner, isLocalDevRequest, type ScheduleAccessEnv } from './auth/scheduleAccess'
+import { handleGitHubRequest } from './github/routes'
+import { syncAllConnections } from './github/sync'
+import type { GitHubEnv } from './github/githubApi'
 
-interface Env extends ScheduleEnv, ScheduleAccessEnv {
+interface Env extends ScheduleEnv, ScheduleAccessEnv, GitHubEnv {
   AI: any
   OPENAI_API_KEY?: string
   OPENAI_MODEL?: string
@@ -86,6 +89,9 @@ export default {
       returnUrl.searchParams.set('access', 'granted')
       return Response.redirect(returnUrl.toString(), 302)
     }
+
+    const githubResponse = await handleGitHubRequest(request, env, owner, corsHeaders)
+    if (githubResponse) return githubResponse
 
     const scheduleResponse = await handleScheduleRequest(request, env, owner, corsHeaders)
     if (scheduleResponse) return scheduleResponse
@@ -447,6 +453,9 @@ export default {
     }
 
     return notFound(corsHeaders)
+  },
+  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+    await syncAllConnections(env)
   },
 }
 

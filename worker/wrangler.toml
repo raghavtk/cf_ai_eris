@@ -3,6 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2024-06-01"
 compatibility_flags = ["nodejs_compat"]
 
+[triggers]
+crons = ["0 10 * * *"]
+
 [ai]
 binding = "AI"
 remote = true
@@ -31,6 +34,8 @@ new_sqlite_classes = ["CommandParserDO"]
 # POLICY_AUD = "your-access-application-audience-tag"
 # Set ERIS_LOCAL_DEV=true only in worker/.dev.vars. The Worker also requires a
 # loopback hostname, and production must never define this variable.
+# GitHub connector secrets: GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_CLIENT_ID,
+# GITHUB_CLIENT_SECRET, GITHUB_PRIVATE_KEY, GITHUB_TOKEN_ENCRYPTION_KEY.
 
 [observability]
 enabled = false
