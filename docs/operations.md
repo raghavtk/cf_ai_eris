@@ -27,6 +27,8 @@ If the owner is locked out, confirm the Access application audience tag and team
 
 ## Back up D1
 
+The GitHub connector stores encrypted GitHub user credentials and cached issue, PR, and Project metadata in D1. A D1 export contains ciphertext and sensitive work metadata; treat backups as sensitive. Keep `GITHUB_TOKEN_ENCRYPTION_KEY` outside D1 backups and retain it while connections exist. If the key is lost, disconnect and reauthorize installations. Before deleting all user data, also remove rows from `github_project_oauth_flows`, `github_oauth_flows`, `github_pending_links`, `github_items`, `github_milestones`, `github_labels`, `github_projects`, `github_sync_progress`, `github_repositories`, and `github_connections` in that order. Use the GitHub tab to disconnect an individual installation and purge its cache.
+
 Create a timestamped export before migrations or risky data changes:
 
 ```bash

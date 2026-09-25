@@ -10,6 +10,7 @@ Eris is a personal productivity assistant built on Cloudflare. It combines a Rea
 - Cloudflare D1 persistence with migrations and indexed queries.
 - Clean, dark UI with consistent UX for edit/save and batch actions.
 - Deterministic daily planner with hourly task blocks, capacity overflow, conflict protection, and calendar-ready persistence.
+- Read-only GitHub engineering inbox with separate personal and work installations, selected repositories, Projects, and sync health.
 
 ## Architecture
 - **Frontend (app/)**: Vite + React + MUI UI, calling a Worker API.
@@ -143,6 +144,22 @@ Schedule entries distinguish local Eris blocks from external calendar events usi
 Every production Worker route validates a Cloudflare Access JWT and permits only `ERIS_ALLOWED_EMAIL`; schedule entries are additionally scoped to that verified email. Configure `TEAM_DOMAIN`, `POLICY_AUD`, `ERIS_ALLOWED_EMAIL`, and `ERIS_ALLOWED_ORIGIN`, protect the complete Worker hostname with a one-email Access policy, and allow identity-free `OPTIONS` preflights to reach the Worker's restrictive CORS handler. Local Wrangler requests use the isolated `local-dev` owner only when `ERIS_LOCAL_DEV=true` is present in `worker/.dev.vars` and the request uses a loopback hostname. The public frontend renders representative portfolio content without requesting private APIs until the owner signs in. See [docs/operations.md](docs/operations.md) for deployment and lockout recovery.
 
 Migrations live in [worker/db/migrations](worker/db/migrations).
+
+### GitHub connector setup
+
+The GitHub tab is private behind the existing Cloudflare Access boundary. Register a GitHub App for this deployment with **Metadata (read)**, **Issues (read)**, **Pull requests (read)**, and **Organization Projects (read)**. Do not grant Contents or any write permission. Enable expiring user-to-server tokens and set its OAuth callback to `https://<protected-worker-host>/api/github/oauth/callback`. Install the app on selected repositories for a personal account or an approved organization. An organization administrator may need to approve the installation and its requested permissions.
+
+For user-owned personal Projects, register a separate GitHub OAuth App with callback `https://<protected-worker-host>/api/github/projects/callback`. Leave **Expire user access tokens** enabled: Eris encrypts and rotates its refresh token. Eris requests only its `read:project` scope. This authorization is optional for the repository inbox, but required for full personal Projects. The OAuth App does not request `repo` scope. The two callbacks must be covered by the same Cloudflare Access application as the Worker API; the signed-in owner must be able to return to them in the browser.
+
+Set these Worker secrets with `wrangler secret put`, never in frontend variables or source control:
+
+- `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_PRIVATE_KEY` (the GitHub App's private key PEM)
+- `GITHUB_TOKEN_ENCRYPTION_KEY` (32 random bytes, base64url encoded; retain securely to decrypt existing connections)
+- `GITHUB_PROJECT_OAUTH_CLIENT_ID`, `GITHUB_PROJECT_OAUTH_CLIENT_SECRET` for personal Projects
+
+Apply migrations through `0006_github_sync_safety.sql` before deploying the Worker. In the GitHub tab, install the App, authorize it, choose the verified installation, select repositories, and refresh. Repeat for a work organization. Personal Projects need the separate **Authorize Projects** action after connecting. The dashboard defaults to Personal; Work and All are explicit views.
+
+The Worker runs a daily pull sync at **10:00 UTC** (6 a.m. Eastern during daylight saving time, 5 a.m. otherwise). Manual refresh is available in the tab. Issues and pull requests use an overlapping incremental window; a full reconciliation runs at least weekly to remove deleted records. Large full scans save pagination progress and continue on later daily or manual syncs. Labels, milestones, and selected Project fields are refreshed as snapshots. Project item detail is fetched only after its repository is confirmed selected. Rate-limit backoff and permission failures are visible per installation. A disconnected or revoked installation has its local cache and credentials purged. GitHub content never enters the AI request flow; work records carry a sensitive marker. Webhooks and GitHub write actions are outside this version.
 
 ## Running locally
 
