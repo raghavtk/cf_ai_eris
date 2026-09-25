@@ -114,7 +114,7 @@ export default function GitHub() {
   const refresh = (id: string) => run(`refresh-${id}`, async () => {
     const result = await githubService.refresh(id)
     await reload(context)
-    setNotice(result.status === 'ready' ? 'GitHub data is current.' : `Refresh finished with status: ${result.status}. Check the connection card.`)
+    setNotice(result.status === 'ready' ? 'GitHub data is current.' : result.status === 'syncing' ? 'GitHub is syncing in batches. Refresh again or let the daily sync continue.' : `Refresh finished with status: ${result.status}. Check the connection card.`)
   })
 
   const disconnect = (id: string) => run(`disconnect-${id}`, async () => {
@@ -250,6 +250,7 @@ export default function GitHub() {
           <p>Authorized by @{connection.github_login} · last sync {dateLabel(connection.last_synced_at)}</p></div>
           <span className={`github-status ${connection.status}`}>{connection.status.replace('_', ' ')}</span></div>
         {connection.error_code && <p className='github-connection-error'>Sync needs attention: {connection.error_code.replaceAll('_', ' ')}{connection.next_retry_at ? ` · retry after ${dateLabel(connection.next_retry_at)}` : ''}</p>}
+        {connection.sync_pending ? <p className='github-muted'>Full repository sync is still in progress. Daily sync or manual refresh will continue it.</p> : null}
         {connection.projects_error_code && <p className='github-connection-error'>Projects need attention: {connection.projects_error_code.replaceAll('_', ' ')}</p>}
         <div className='github-card-actions'><button onClick={() => refresh(connection.id)} disabled={busy !== null}>Refresh now</button>
           <button onClick={() => { setView('repositories'); loadRepos(connection.id) }} disabled={busy !== null}>Repositories</button>

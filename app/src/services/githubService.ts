@@ -5,7 +5,7 @@ export type GitHubConnection = {
   id: string; context: GitHubContext; installation_id: number; account_login: string; account_type: string;
   github_login: string; status: 'ready' | 'approval_required' | 'revoked' | 'error'; error_code: string | null;
   projects_error_code: string | null; projects_authorized: number;
-  last_synced_at: string | null; next_retry_at: string | null
+  sync_pending: number; last_synced_at: string | null; next_retry_at: string | null
 }
 export type GitHubRepository = { repo_id: number; full_name: string; html_url: string; description: string | null; private: number; selected: number }
 export type GitHubItem = { kind: 'issue' | 'pull_request'; number: number; title: string; html_url: string; state: string;

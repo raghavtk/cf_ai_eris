@@ -66,12 +66,14 @@ export async function handleGitHubRequest(request: Request, env: GitHubEnv, owne
       const connection = await connectionFor(env, owner, flow.connection_id)
       if (!connection || connection.context !== 'personal') return returnToApp(env, { github_error: 'connection_unavailable' })
       try {
-        const token = await exchangeProjectCode(env, code)
-        const { data: user } = await githubFetch<{ id: number }>(token, '/user')
+        const tokens = await exchangeProjectCode(env, code)
+        const { data: user } = await githubFetch<{ id: number }>(tokens.access_token, '/user')
         const identity = await env.DB.prepare('SELECT github_user_id FROM github_connections WHERE id = ?').bind(connection.id).first<{ github_user_id: number }>()
         if (user.id !== identity?.github_user_id) return returnToApp(env, { github_error: 'projects_account_mismatch' })
-        await env.DB.prepare('UPDATE github_connections SET encrypted_project_token = ?, projects_error_code = NULL, updated_at = ? WHERE id = ?')
-          .bind(await seal(env, token), now(), connection.id).run()
+        await env.DB.prepare(`UPDATE github_connections SET encrypted_project_token = ?, encrypted_project_refresh_token = ?,
+          project_refresh_expires_at = ?, projects_error_code = NULL, updated_at = ? WHERE id = ?`)
+          .bind(await seal(env, tokens.access_token), await seal(env, tokens.refresh_token),
+            new Date(Date.now() + tokens.refresh_token_expires_in * 1000).toISOString(), now(), connection.id).run()
         return returnToApp(env, { github_projects: 'connected' })
       } catch { return returnToApp(env, { github_error: 'projects_authorization_failed' }) }
     }
@@ -147,7 +149,8 @@ export async function handleGitHubRequest(request: Request, env: GitHubEnv, owne
       try {
         await discoverRepositories(env, { id, owner_id: owner, context: pending.context, installation_id: installation.id,
           account_login: installation.account.login, account_type: installation.account.type as 'User' | 'Organization',
-          encrypted_refresh_token: pending.encrypted_refresh_token, last_synced_at: null, last_full_sync_at: null, next_retry_at: null })
+          encrypted_refresh_token: pending.encrypted_refresh_token, selection_revision: 0, full_sync_started_at: null,
+          last_synced_at: null, last_full_sync_at: null, next_retry_at: null })
       } catch (error) {
         await purgeConnection(env, id)
         throw error
@@ -158,6 +161,7 @@ export async function handleGitHubRequest(request: Request, env: GitHubEnv, owne
     if (path === '/api/github/connections' && request.method === 'GET') {
       const { results } = await env.DB.prepare(`SELECT id, context, installation_id, account_id, account_login, account_type,
         github_login, status, error_code, projects_error_code, CASE WHEN encrypted_project_token IS NOT NULL THEN 1 ELSE 0 END AS projects_authorized,
+        CASE WHEN full_sync_started_at IS NOT NULL THEN 1 ELSE 0 END AS sync_pending,
         last_synced_at, next_retry_at, created_at
         FROM github_connections WHERE owner_id = ? ORDER BY context, account_login`).bind(owner).all()
       return json({ connections: results }, 200, headers)
@@ -183,23 +187,25 @@ export async function handleGitHubRequest(request: Request, env: GitHubEnv, owne
         const { results } = await env.DB.prepare('SELECT repo_id, selected FROM github_repositories WHERE connection_id = ?').bind(connection.id).all<{ repo_id: number; selected: number }>()
         if ([...chosen].some((id) => !results.some((row) => row.repo_id === id))) return errorResponse(400, 'repository_not_available', 'A selected repository is unavailable', headers)
         const selectedJson = JSON.stringify([...chosen])
-        for (const table of ['github_items', 'github_milestones', 'github_labels']) {
-          await env.DB.prepare(`DELETE FROM ${table} WHERE connection_id = ? AND repo_id IN (
-            SELECT repo_id FROM github_repositories WHERE connection_id = ? AND selected = 1
-            AND repo_id NOT IN (SELECT value FROM json_each(?)))`)
-            .bind(connection.id, connection.id, selectedJson).run()
-        }
-        await env.DB.prepare(`UPDATE github_repositories SET selected = CASE
-          WHEN repo_id IN (SELECT value FROM json_each(?)) THEN 1 ELSE 0 END WHERE connection_id = ?`)
-          .bind(selectedJson, connection.id).run()
-        await env.DB.prepare('DELETE FROM github_projects WHERE connection_id = ?').bind(connection.id).run()
-        await env.DB.prepare('UPDATE github_connections SET last_full_sync_at = NULL WHERE id = ?').bind(connection.id).run()
+        await env.DB.batch([
+          env.DB.prepare(`UPDATE github_connections SET selection_revision = selection_revision + 1,
+            last_full_sync_at = NULL, full_sync_started_at = NULL WHERE id = ?`).bind(connection.id),
+          env.DB.prepare(`UPDATE github_repositories SET selected = CASE
+            WHEN repo_id IN (SELECT value FROM json_each(?)) THEN 1 ELSE 0 END WHERE connection_id = ?`)
+            .bind(selectedJson, connection.id),
+          ...['github_items', 'github_milestones', 'github_labels'].map((table) =>
+            env.DB.prepare(`DELETE FROM ${table} WHERE connection_id = ? AND repo_id IN (
+              SELECT repo_id FROM github_repositories WHERE connection_id = ? AND selected = 0)`)
+              .bind(connection.id, connection.id)),
+          env.DB.prepare('DELETE FROM github_sync_progress WHERE connection_id = ?').bind(connection.id),
+          env.DB.prepare('DELETE FROM github_projects WHERE connection_id = ?').bind(connection.id),
+        ])
         return json({ selected: [...chosen].length }, 200, headers)
       }
       if (match[2] === 'refresh' && request.method === 'POST') {
         await syncConnection(env, connection)
         const updated = await connectionFor(env, owner, connection.id)
-        return json({ status: updated ? (updated as Connection & { status: string }).status : 'disconnected' }, 200, headers)
+        return json({ status: updated ? updated.full_sync_started_at ? 'syncing' : (updated as Connection & { status: string }).status : 'disconnected' }, 200, headers)
       }
     }
     if (path === '/api/github/dashboard' && request.method === 'GET') {

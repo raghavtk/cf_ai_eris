@@ -123,7 +123,7 @@ export async function userInstallations<T extends { id: number }>(token: string)
   throw new GitHubError(502, 'github_page_limit', 'Too many user installations')
 }
 
-type OAuthTokens = { access_token: string; expires_in: number; refresh_token: string; refresh_token_expires_in: number }
+export type OAuthTokens = { access_token: string; expires_in: number; refresh_token: string; refresh_token_expires_in: number }
 
 export async function exchangeCode(env: GitHubEnv, code: string): Promise<OAuthTokens> {
   const response = await fetch('https://github.com/login/oauth/access_token', {
@@ -152,17 +152,35 @@ export async function refreshUserToken(env: GitHubEnv, refreshToken: string): Pr
   return data as OAuthTokens
 }
 
-export async function exchangeProjectCode(env: GitHubEnv, code: string): Promise<string> {
+export async function exchangeProjectCode(env: GitHubEnv, code: string): Promise<OAuthTokens> {
   const response = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify({ client_id: required(env.GITHUB_PROJECT_OAUTH_CLIENT_ID, 'GITHUB_PROJECT_OAUTH_CLIENT_ID'),
       client_secret: required(env.GITHUB_PROJECT_OAUTH_CLIENT_SECRET, 'GITHUB_PROJECT_OAUTH_CLIENT_SECRET'), code }),
   })
-  const data = await response.json() as { access_token?: string; scope?: string; error?: string }
-  if (!response.ok || data.error || !data.access_token || !data.scope?.split(',').includes('read:project')) {
+  const data = await response.json() as Partial<OAuthTokens> & { scope?: string; error?: string }
+  if (!response.ok || data.error || !data.access_token || !data.refresh_token || !data.expires_in || !data.refresh_token_expires_in ||
+      !data.scope?.split(',').includes('read:project')) {
     throw new GitHubError(403, 'github_projects_authorization_failed', 'GitHub Projects read permission was not granted')
   }
-  return data.access_token
+  return data as OAuthTokens
+}
+
+export async function refreshProjectToken(env: GitHubEnv, refreshToken: string): Promise<OAuthTokens> {
+  const response = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: required(env.GITHUB_PROJECT_OAUTH_CLIENT_ID, 'GITHUB_PROJECT_OAUTH_CLIENT_ID'),
+      client_secret: required(env.GITHUB_PROJECT_OAUTH_CLIENT_SECRET, 'GITHUB_PROJECT_OAUTH_CLIENT_SECRET'),
+      grant_type: 'refresh_token', refresh_token: refreshToken }),
+  })
+  const data = await response.json() as Partial<OAuthTokens> & { error?: string }
+  if (data.error === 'bad_refresh_token' || data.error === 'invalid_grant') {
+    throw new GitHubError(401, 'github_projects_authorization_expired', 'Reauthorize personal Projects')
+  }
+  if (!response.ok || data.error || !data.access_token || !data.refresh_token || !data.expires_in || !data.refresh_token_expires_in) {
+    throw new GitHubError(502, 'github_projects_token_refresh_failed', 'GitHub Projects token refresh failed')
+  }
+  return data as OAuthTokens
 }
 
 export async function installationToken(env: GitHubEnv, installationId: number): Promise<string> {
