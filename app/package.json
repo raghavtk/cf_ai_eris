@@ -26,10 +26,10 @@
 		"react": "^19.1.1",
 		"react-dom": "^19.1.1",
 		"react-router-dom": "^7.12.0",
-		"vitest": "^4.0.18"
+    "vitest": "^4.1.11"
 	},
 	"devDependencies": {
-		"@cloudflare/vite-plugin": "^1.20.3",
+    "@cloudflare/vite-plugin": "^1.60.0",
 		"@eslint/js": "^9.33.0",
 		"@testing-library/dom": "^10.4.1",
 		"@testing-library/jest-dom": "^6.9.1",
@@ -46,6 +46,6 @@
 		"typescript": "~5.8.3",
 		"typescript-eslint": "^8.39.1",
 		"vite": "^7.1.2",
-		"wrangler": "^4.59.1"
+    "wrangler": "^4.139.0"
 	}
 }
