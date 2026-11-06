@@ -35,10 +35,11 @@ export type TaskRow = {
 
 type Props = {
   tasks: TaskRow[]
+  readOnly?: boolean
   onDeleted?: (id: string) => void
 }
 
-const TaskTable = ({ tasks, onDeleted }: Props) => {
+const TaskTable = ({ tasks, onDeleted, readOnly = false }: Props) => {
   const [rows, setRows] = useState<TaskRow[]>(tasks)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [aiMessage, setAiMessage] = useState('')
@@ -265,24 +266,22 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
   }
 
   return (
-    <Paper elevation={2} sx={{ p: 2, borderRadius: 2, bgcolor: '#1f2937', color: '#e5e7eb' }}>
-      <Stack direction='row' alignItems='center' justifyContent='space-between' mb={2}>
+    <Paper elevation={2} sx={{ p: 2, borderRadius: 2, bgcolor: 'background.paper', color: 'text.primary' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent='space-between' mb={2}>
         <Typography variant='h6' fontWeight={700}>
           Tasks
         </Typography>
-        <Stack direction='row' spacing={1}>
+        <Stack direction='row' useFlexGap flexWrap='wrap' spacing={1}>
           <Button
             variant='contained'
             size='small'
             onClick={runEstimate}
-            disabled={!selectedTasks.length || busy}
+            disabled={readOnly || !selectedTasks.length || busy}
             sx={{
-              color: '#f8fafc',
-              borderColor: '#f8fafc',
+              borderColor: 'primary.main',
               fontFamily: 'Helvetica, Arial, sans-serif',
               fontWeight: 600,
               textTransform: 'none',
-              '&:hover': { borderColor: '#f1f5f9', bgcolor: 'rgba(248,250,252,0.08)' },
             }}
           >
             Estimate time
@@ -291,14 +290,12 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
             variant='contained'
             size='small'
             onClick={runPriority}
-            disabled={!selectedTasks.length || busy}
+            disabled={readOnly || !selectedTasks.length || busy}
             sx={{
-              color: '#f8fafc',
-              borderColor: '#f8fafc',
+              borderColor: 'primary.main',
               fontFamily: 'Helvetica, Arial, sans-serif',
               fontWeight: 600,
               textTransform: 'none',
-              '&:hover': { borderColor: '#f1f5f9', bgcolor: 'rgba(94, 95, 92, 0.08)' },
             }}
           >
             Assign priority
@@ -307,20 +304,19 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
             variant='contained'
             size='small'
             onClick={runCategorize}
-            disabled={!selectedTasks.length || busy}
+            disabled={readOnly || !selectedTasks.length || busy}
             sx={{
-              color: '#f8fafc',
-              borderColor: '#f8fafc',
+              borderColor: 'primary.main',
               fontFamily: 'Helvetica, Arial, sans-serif',
               fontWeight: 600,
               textTransform: 'none',
-              '&:hover': { borderColor: '#f1f5f9', bgcolor: 'rgba(248,250,252,0.08)' },
             }}
           >
             Categorize tasks
           </Button>
         </Stack>
       </Stack>
+      {readOnly && <Typography variant='body2' color='text.secondary' mb={2}>Sample tasks. Database editing and AI enrichment are available in the owner workspace.</Typography>}
       {aiMessage && (
         <Typography variant='body2' sx={{ mb: 1, color: '#cbd5e1', fontFamily: 'Helvetica, Arial, sans-serif' }}>
           {aiMessage}
@@ -334,6 +330,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
                 <Checkbox
                   inputProps={{ 'aria-label': 'Select all tasks' }}
                   size='small'
+                  disabled={readOnly}
                   sx={{ color: '#e5e7eb' }}
                   indeterminate={selected.size > 0 && selected.size < rows.length}
                   checked={selected.size === rows.length && rows.length > 0}
@@ -366,6 +363,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
                     <Checkbox
                       inputProps={{ 'aria-label': `Select ${row.title}` }}
                       size='small'
+                      disabled={readOnly}
                       sx={{ color: '#e5e7eb' }}
                       checked={isSelected}
                       onChange={() => toggleSelect(row.id)}
@@ -525,7 +523,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
                           size='small'
                           variant='contained'
                           onClick={() => startEdit(row)}
-                          disabled={!isSelected || busy}
+                          disabled={readOnly || !isSelected || busy}
                           sx={{
                             textTransform: 'none',
                             fontWeight: 600,
@@ -541,7 +539,7 @@ const TaskTable = ({ tasks, onDeleted }: Props) => {
                           variant='contained'
                           color='error'
                           onClick={() => handleDelete(row.id)}
-                          disabled={busy}
+                          disabled={readOnly || busy}
                           sx={{
                             textTransform: 'none',
                             bgcolor: '#b91c1c',

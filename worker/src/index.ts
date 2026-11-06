@@ -22,6 +22,7 @@ const baseCorsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
   'Access-Control-Allow-Credentials': 'true',
   Vary: 'Origin',
+  'Cache-Control': 'no-store',
 }
 
 const json = (data: unknown, status = 200, corsHeaders: Record<string, string> = baseCorsHeaders) =>

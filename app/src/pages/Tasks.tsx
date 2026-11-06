@@ -18,6 +18,7 @@ import type { SelectChangeEvent } from '@mui/material'
 import { ApiRequestError, taskService } from '../services/taskService'
 import { useNavigate, useLocation } from 'react-router-dom'
 import NaturalLanguageInput from '../components/NaturalLanguageInput'
+import type { DemoWorkspace } from '../demo'
 import type { ParsedTask, TaskCategory as Category, TaskPriority as Priority, TaskStatus as Status } from '../../../shared/contracts'
 
 type FormStatus = Exclude<Status, 'cancelled'>
@@ -60,7 +61,7 @@ const inputSx = {
 }
 const labelSx = { color: '#cbd5e1', '&.Mui-focused': { color: '#e5e7eb' } }
 
-const Tasks = () => {
+const Tasks = ({ demoCreate }: { demoCreate?: DemoWorkspace['createTask'] }) => {
   const [form, setForm] = useState<TaskForm>(initialState)
   const [submitting, setSubmitting] = useState(false)
   const [feedback, setFeedback] = useState<{ severity: 'success' | 'error'; message: string } | null>(null)
@@ -88,7 +89,7 @@ const Tasks = () => {
     setSubmitting(true)
     setFeedback(null)
     try {
-      await taskService.create({
+      await (demoCreate ?? taskService.create)({
         title: form.title,
         description: form.description,
         priority: form.priority,
@@ -143,7 +144,7 @@ const Tasks = () => {
   }, [location.state])
 
   return (
-    <Box sx={{ bgcolor: '#0f172a', minHeight: 'calc(100vh - 80px)', py: 4 }}>
+    <Box sx={{ py: { xs: 0, md: 2 } }}>
       <Container maxWidth='md' sx={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
         <Stack spacing={3} sx={{ width: '100%' }}>
           <Paper
@@ -152,9 +153,7 @@ const Tasks = () => {
               p: { xs: 3, md: 4 },
               borderRadius: 3,
               width: '100%',
-              maxHeight: '80vh',
-              overflowY: 'auto',
-              bgcolor: '#232d3f',
+              bgcolor: 'background.paper',
               color: '#e5e7eb',
             }}
           >
@@ -163,7 +162,7 @@ const Tasks = () => {
                 Create a Task
               </Typography>
               <Typography variant='body2' sx={{ color: '#cbd5e1' }}>
-                fill it out, the more info, the better!
+                Capture the details you need to take the next step.
               </Typography>
             </Box>
 
@@ -303,7 +302,7 @@ const Tasks = () => {
             <Typography variant='h5' fontWeight={700} sx={{ mb: 2, color: '#e5e7eb', mt: 3 }}>
               Add a task quickly!
             </Typography>
-            <NaturalLanguageInput onSavePreview={handleParsedPreview} />
+            <NaturalLanguageInput onSavePreview={handleParsedPreview} demoCreate={demoCreate} />
           </Box>
         </Stack>
       </Container>

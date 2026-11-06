@@ -1,6 +1,6 @@
 import './App.css'
-import { useEffect, useState } from 'react'
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import Navbar from './components/Navbar'
 import Tasks from './pages/Tasks'
@@ -10,109 +10,49 @@ import type { TaskRow } from './components/TaskTable'
 import NaturalLanguageInput from './components/NaturalLanguageInput'
 import type { ParsedTask } from './components/NaturalLanguageInput'
 import Schedule from './pages/Schedule'
-import GitHub from './pages/GitHub'
 import { taskService } from './services/taskService'
-import type { Task } from './services/taskService'
+import type { CreateTaskInput, Task } from './services/taskService'
+import { validateCreateTask } from '../../shared/contracts'
 import { authService } from './services/apiClient'
+import { mapTaskToRow, sampleTasks } from './demo'
+import type { DemoWorkspace } from './demo'
+import { About, LockedGitHub } from './pages/Showcase'
+import { ThemeProvider } from '@mui/material/styles'
+import { workspaceTheme } from './theme'
+
+const GitHub = lazy(() => import('./pages/GitHub'))
 
 const SESSION_MARKER = 'eris-owner-session'
 
-function PublicPreview({ checking }: { checking: boolean }) {
-  return (
-    <main className='preview-shell'>
-      <nav className='preview-nav'>
-        <div className='preview-brand'><span className='brand-mark'>E</span>Eris</div>
-        <a className='owner-link' href={authService.loginUrl}>{checking ? 'Checking access…' : 'Owner sign in'}</a>
-      </nav>
-      <section className='preview-hero'>
-        <div className='preview-copy'>
-          <p className='eyebrow'>PRIVATE AI PRODUCTIVITY SYSTEM</p>
-          <h1>Turn scattered intentions into a day you can actually finish.</h1>
-          <p className='preview-lede'>Eris combines natural-language task capture, AI-assisted prioritization, and conflict-aware daily planning in one focused workspace.</p>
-          <div className='preview-actions'>
-            <a className='primary-cta' href={authService.loginUrl}>Owner sign in</a>
-            <a className='secondary-cta' href='https://github.com/raghavtk/cf_ai_eris' target='_blank' rel='noreferrer'>View source</a>
-          </div>
-          <p className='privacy-note'>The live workspace is private. Everything shown here is representative sample content.</p>
-        </div>
-        <div className='product-preview' aria-label='Sample Eris daily plan'>
-          <div className='preview-window-bar'><span /><span /><span /><strong>Today · August 28</strong></div>
-          <div className='preview-dashboard'>
-            <div className='sample-command'>Plan my afternoon around the research review <kbd>↵</kbd></div>
-            <div className='sample-grid'>
-              <article><span className='sample-time'>1:00 PM</span><h3>Research review</h3><p>High priority · 90 min</p></article>
-              <article><span className='sample-time'>2:30 PM</span><h3>Project deep work</h3><p>Focus block · 120 min</p></article>
-              <article><span className='sample-time'>4:30 PM</span><h3>Weekly planning</h3><p>Medium priority · 30 min</p></article>
-            </div>
-          </div>
-        </div>
-      </section>
-      <section className='feature-strip'>
-        <article><span>01</span><h2>Capture naturally</h2><p>Describe work in plain language and turn it into structured tasks.</p></article>
-        <article><span>02</span><h2>Prioritize thoughtfully</h2><p>Use AI assistance without sending sensitive context unless explicitly allowed.</p></article>
-        <article><span>03</span><h2>Plan realistically</h2><p>Build conflict-aware schedules that preserve locked calendar commitments.</p></article>
-      </section>
-    </main>
-  )
-}
-
-const mapTaskToRow = (task: Task): TaskRow => ({
-  id: task.id,
-  title: task.title,
-  description: task.description,
-  priority: task.priority,
-  status: task.status,
-  category: task.category,
-  subcategory: task.subcategory,
-  dueDate: task.due_date,
-  estimatedDuration: task.estimated_duration,
-  note: task.note,
-})
-
-function Home() {
+function Home({ demo }: { demo?: DemoWorkspace }) {
   const [tasks, setTasks] = useState<TaskRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [parsedPreview, setParsedPreview] = useState<ParsedTask | null>(null)
   const navigate = useNavigate()
+  const isDemo = Boolean(demo)
 
   useEffect(() => {
+    if (isDemo) return
     taskService
       .getAll()
       .then((data) => {
         const mapped = data.map(mapTaskToRow)
         setTasks(mapped)
       })
-      .catch((err) => {
-        console.error(err)
-        setTasks([
-          {
-            id: 'demo-1',
-            title: 'Demo Task',
-            description: 'Fallback task',
-            priority: 'medium',
-            status: 'pending',
-            category: 'work',
-            subcategory: 'Projects',
-            dueDate: '',
-            estimatedDuration: 60,
-            note: 'Demo',
-          },
-        ])
-      })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false))
-  }, [])
+  }, [isDemo])
 
   const handlePreview = (parsed: ParsedTask) => {
     setParsedPreview(parsed)
   }
 
   const handleTaskCreated = (task: Task) => {
-    const mapped = mapTaskToRow(task)
-    setTasks((prev) => {
-      const withoutDemo = prev.filter((t) => t.id !== 'demo-1')
-      const withoutDup = withoutDemo.filter((t) => t.id !== mapped.id)
-      return [mapped, ...withoutDup]
-    })
+    if (!demo) {
+      const mapped = mapTaskToRow(task)
+      setTasks((prev) => [mapped, ...prev.filter((row) => row.id !== mapped.id)])
+    }
     setParsedPreview(null)
     setLoading(false)
   }
@@ -123,20 +63,17 @@ function Home() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       transition={{ duration: 0.3 }}
-      className='max-w-6xl mx-auto px-4 pt-24 pb-12 flex flex-col items-center text-center gap-12'
+      className='workspace-home'
     >
-      <div className='flex flex-col gap-4'>
-        <h1 className='font-bold text-gray-100' style={{ fontSize: '40px', fontFamily: 'Helvetica, Arial, sans-serif' }}>
-          Welcome to your Personal Productivity Assistant, Eris.
-        </h1>
-        <p className='text-gray-300' style={{ fontSize: '22px', fontFamily: 'Helvetica, Arial, sans-serif' }}>
-          Manage your tasks intelligently with AI-powered insights and natural language processing.
-        </p>
-      </div>
+      <header className='workspace-hero'>
+        <p className='workspace-eyebrow'>Your AI productivity workspace</p>
+        <h1>Make room for the work that matters.</h1>
+        <p>Capture tasks in plain language, prioritize the work, and turn your list into a daily plan.</p>
+      </header>
 
       <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '40px' }}>
         <div style={{ width: '100%', maxWidth: '900px' }}>
-          <NaturalLanguageInput onSavePreview={handlePreview} onTaskCreated={handleTaskCreated} />
+          <NaturalLanguageInput onSavePreview={handlePreview} onTaskCreated={handleTaskCreated} demoCreate={demo?.createTask} />
           {parsedPreview && (
             <div
               style={{
@@ -174,41 +111,74 @@ function Home() {
         </div>
       </div>
 
-      <div style={{ width: '100%', maxWidth: '1300px', margin: '0 auto' }}>
-        {loading ? (
+      <div style={{ minWidth: 0 }}>
+        {loadError && <p role='alert'>Could not load your tasks.</p>}
+        {!demo && loading ? (
           <p className='text-gray-300' style={{ fontFamily: 'Helvetica, Arial, sans-serif' }}>Loading tasks...</p>
         ) : (
-          <TaskTable tasks={tasks} />
+          <TaskTable tasks={demo ? demo.tasks.map(mapTaskToRow) : tasks} readOnly={isDemo} />
         )}
       </div>
     </motion.div>
   )
 }
 
-function AppContent() {
+function AppContent({ demo }: { demo?: DemoWorkspace }) {
   const location = useLocation()
   return (
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
-        <Route path='/' element={<Home />} />
-        <Route path='/tasks' element={<Tasks />} />
-        <Route path='/view-tasks' element={<ViewTasks />} />
-        <Route path='/schedule' element={<Schedule />} />
-        <Route path='/github' element={<GitHub />} />
+        <Route path='/' element={<Home demo={demo} />} />
+        <Route path='/tasks' element={<Tasks demoCreate={demo?.createTask} />} />
+        <Route path='/view-tasks' element={<ViewTasks demoTasks={demo?.tasks} />} />
+        <Route path='/schedule' element={<Schedule demoTasks={demo?.tasks} />} />
+        <Route path='/github' element={demo ? <LockedGitHub /> : <Suspense fallback={<p role='status'>Loading GitHub…</p>}><GitHub /></Suspense>} />
+        <Route path='/about' element={<About />} />
+        <Route path='*' element={<Home demo={demo} />} />
       </Routes>
     </AnimatePresence>
   )
 }
 
+function Workspace({ owner, status }: { owner: boolean; status: string }) {
+  const [demoTasks, setDemoTasks] = useState(sampleTasks)
+  const createTask = async (input: CreateTaskInput): Promise<Task> => {
+    const result = validateCreateTask(input)
+    if (!result.success) throw new Error(Object.values(result.error.details ?? {})[0] ?? result.error.error)
+    const now = new Date().toISOString()
+    const task = { ...result.data, id: crypto.randomUUID(), created_at: now, updated_at: now }
+    setDemoTasks((current) => [task, ...current])
+    return task
+  }
+
+  return (
+    <div className='workspace'>
+      <Navbar owner={owner} />
+      <main className='workspace-main'>
+        {!owner && (
+          <aside className='demo-banner' aria-label='Demo workspace'>
+            <strong>Interactive demo</strong>
+            <span>Sample data. Tasks reset on reload. The assistant runs a local simulation.</span>
+          </aside>
+        )}
+        {status && <p className='session-status' role='status'>{status}</p>}
+        <AppContent demo={owner ? undefined : { tasks: demoTasks, createTask }} />
+      </main>
+    </div>
+  )
+}
+
 function App() {
-  const returnedFromAccess = new URLSearchParams(window.location.search).get('access') === 'granted'
-  const shouldVerify = (import.meta.env.DEV && import.meta.env.MODE !== 'test') || returnedFromAccess || localStorage.getItem(SESSION_MARKER) === 'active'
-  const [session, setSession] = useState<'public' | 'checking' | 'authenticated'>(shouldVerify ? 'checking' : 'public')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [shouldVerify] = useState(() => searchParams.get('access') === 'granted' ||
+    (import.meta.env.DEV && import.meta.env.MODE !== 'test') ||
+    localStorage.getItem(SESSION_MARKER) === 'active')
+  const [session, setSession] = useState<'public' | 'checking' | 'owner' | 'failed'>(shouldVerify ? 'checking' : 'public')
 
   useEffect(() => {
     const requireAuthentication = () => {
       localStorage.removeItem(SESSION_MARKER)
-      setSession('public')
+      setSession('failed')
     }
     window.addEventListener('eris:authentication-required', requireAuthentication)
     return () => window.removeEventListener('eris:authentication-required', requireAuthentication)
@@ -216,29 +186,36 @@ function App() {
 
   useEffect(() => {
     if (!shouldVerify) return
+    let active = true
     authService.session()
       .then(() => {
+        if (!active) return
         localStorage.setItem(SESSION_MARKER, 'active')
-        setSession('authenticated')
-        if (returnedFromAccess) window.history.replaceState({}, '', window.location.pathname)
+        setSession('owner')
       })
       .catch(() => {
+        if (!active) return
         localStorage.removeItem(SESSION_MARKER)
-        setSession('public')
+        setSession('failed')
       })
-  }, [returnedFromAccess, shouldVerify])
+    return () => { active = false }
+  }, [shouldVerify])
 
-  if (session !== 'authenticated') return <PublicPreview checking={session === 'checking'} />
+  useEffect(() => {
+    if (session === 'checking' || searchParams.get('access') !== 'granted') return
+    const next = new URLSearchParams(searchParams)
+    next.delete('access')
+    setSearchParams(next, { replace: true, state: null })
+  }, [session, searchParams, setSearchParams])
+
+  const owner = session === 'owner'
+  const status = session === 'checking' ? 'Checking owner access…' :
+    session === 'failed' ? 'Owner access could not be verified. You can keep exploring the demo or try signing in again.' : ''
 
   return (
-    <div className='min-h-screen bg-[#0f172a] flex flex-col'>
-      <Navbar />
-      <main className='px-4 flex-1 flex justify-center items-start overflow-auto' style={{ paddingTop: '96px' }}>
-        <div className='mx-auto max-w-6xl w-full py-10'>
-          <AppContent />
-        </div>
-      </main>
-    </div>
+    <ThemeProvider theme={workspaceTheme}>
+      <Workspace key={owner ? 'owner' : 'demo'} owner={owner} status={status} />
+    </ThemeProvider>
   )
 }
 

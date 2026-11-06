@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
-import { Modal, Box, Typography } from '@mui/material'
+import { Modal, Box, Button, Typography } from '@mui/material'
 import { motion, AnimatePresence } from 'framer-motion'
 import { aiService } from '../services/aiService'
 import { taskService } from '../services/taskService'
-import type { ParseHistoryItem, ParsedTask, Task } from '../../../shared/contracts'
+import { demoPrompt, parseDemoTask } from '../demo'
+import type { CreateTaskInput, ParseHistoryItem, ParsedTask, Task } from '../../../shared/contracts'
 
 export type { ParsedTask }
 
 type Props = {
+  demoCreate?: (input: CreateTaskInput) => Promise<Task>
   onSavePreview?: (task: ParsedTask) => void
   onTaskCreated?: (task: Task) => void
 }
@@ -41,7 +43,7 @@ const toCreatePayload = (parsed: ParsedTask) => ({
   note: parsed.note || '',
 })
 
-const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
+const NaturalLanguageInput = ({ onSavePreview, onTaskCreated, demoCreate }: Props) => {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -53,6 +55,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    if (demoCreate) return
     const stored = window.localStorage.getItem(SESSION_KEY)
     if (stored) {
       setSessionId(stored)
@@ -61,7 +64,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
     const next = createSessionId()
     window.localStorage.setItem(SESSION_KEY, next)
     setSessionId(next)
-  }, [])
+  }, [demoCreate])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -75,21 +78,19 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
   }, [])
 
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 100)
-    } else {
+    if (!open) {
       setInput('')
       setError(null)
     }
   }, [open])
 
   const handleParse = async () => {
-    if (!input.trim()) return
+    if (!input.trim() || loading) return
     setLoading(true)
     setError(null)
     setSaveMessage(null)
     try {
-      const res = await aiService.parseTask(input, sessionId)
+      const res = demoCreate ? { parsed: parseDemoTask(input), history: [] } : await aiService.parseTask(input, sessionId)
       const parsed = res.parsed
       const history = Array.isArray(res.history) ? res.history : []
       if (history.length) {
@@ -118,7 +119,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
 
   const handleNewSession = () => {
     const next = createSessionId()
-    window.localStorage.setItem(SESSION_KEY, next)
+    if (!demoCreate) window.localStorage.setItem(SESSION_KEY, next)
     setSessionId(next)
     setThread([])
     setInput('')
@@ -131,7 +132,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
       setSavingKey(key)
       setError(null)
       setSaveMessage(null)
-      const created = await taskService.create(toCreatePayload(item.parsed))
+      const created = await (demoCreate ?? taskService.create)(toCreatePayload(item.parsed))
       onTaskCreated?.(created)
       setSaveMessage(`Saved "${created.title}" to tasks.`)
     } catch (error: unknown) {
@@ -153,10 +154,13 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
 
   return (
     <>
-      <Box 
+      <Box
+        component='button'
+        type='button'
         onClick={() => setOpen(true)}
         sx={{
-          bgcolor: 'rgba(30, 41, 59, 0.5)',
+          width: '100%',
+          bgcolor: 'background.paper',
           backdropFilter: 'blur(8px)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
           borderRadius: '999px',
@@ -165,7 +169,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          cursor: 'text',
+          cursor: 'pointer',
           transition: 'all 0.2s ease',
           '&:hover': {
             bgcolor: 'rgba(30, 41, 59, 0.8)',
@@ -184,6 +188,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
 
       <Modal
         open={open}
+        aria-label='Eris Assistant'
         onClose={() => setOpen(false)}
         closeAfterTransition
         slotProps={{ backdrop: { sx: { backdropFilter: 'blur(4px)', backgroundColor: 'rgba(15, 23, 42, 0.7)' } } }}
@@ -202,7 +207,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
                 <Box
                   sx={{
                     width: '100%',
-                    bgcolor: 'rgba(17, 24, 39, 0.8)',
+                    bgcolor: 'background.paper',
                     backdropFilter: 'blur(16px)',
                     borderRadius: 3,
                     border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -218,6 +223,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
+                    aria-label='Task prompt'
                     placeholder="E.g., Call with team tomorrow at 10am..."
                     style={{
                       width: '100%',
@@ -232,6 +238,12 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
                     disabled={loading}
                     autoFocus
                   />
+                  {demoCreate && (
+                    <Box sx={{ px: 3, pb: 2 }}>
+                      <Typography variant='body2' color='text.secondary'>Demo parser · Use the example or try your own task.</Typography>
+                      <Button size='small' onClick={() => handleReuse(demoPrompt)}>Use example</Button>
+                    </Box>
+                  )}
                   {thread.length > 0 && (
                     <Box sx={{ px: 2, pb: 1.5, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
                       <Typography sx={{ color: '#94a3b8', fontSize: '0.75rem', mb: 1.2, mt: 1.2, letterSpacing: '0.04em' }}>
@@ -301,7 +313,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
                                   opacity: savingKey === `${item.ts || idx}-save` ? 0.7 : 1,
                                 }}
                               >
-                                {savingKey === `${item.ts || idx}-save` ? 'Saving...' : 'Add to DB'}
+                                {savingKey === `${item.ts || idx}-save` ? 'Saving...' : demoCreate ? 'Add to demo tasks' : 'Add to DB'}
                               </Box>
                             </Box>
                           </Box>
@@ -329,8 +341,8 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
                       <Typography sx={{ color: '#86efac', fontSize: '0.85rem' }}>{saveMessage}</Typography>
                     </Box>
                   )}
-                  <Box sx={{ px: 3, py: 2, bgcolor: 'rgba(0, 0, 0, 0.2)', borderTop: '1px solid rgba(255, 255, 255, 0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography sx={{ color: '#64748b', fontSize: '0.85rem' }}>Eris Assistant</Typography>
+                  <Box sx={{ px: 3, py: 2, bgcolor: 'rgba(0, 0, 0, 0.2)', borderTop: '1px solid rgba(255, 255, 255, 0.05)', display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography sx={{ color: 'text.secondary', fontSize: '0.85rem' }}>Eris Assistant</Typography>
                     <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                       <Box
                         component='button'
@@ -345,7 +357,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated }: Props) => {
                       >
                         new session
                       </Box>
-                      <Typography sx={{ color: '#64748b', fontSize: '0.85rem' }}>↵ to parse</Typography>
+                      <Button size='small' variant='contained' disabled={loading || !input.trim()} onClick={handleParse}>Parse task</Button>
                       <Typography sx={{ color: '#64748b', fontSize: '0.85rem' }}>esc to close</Typography>
                     </Box>
                   </Box>

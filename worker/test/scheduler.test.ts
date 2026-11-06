@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDailyPlan } from '../src/scheduler'
+import { buildDailyPlan } from '../../shared/scheduler'
 import type { Task } from '../../shared/contracts'
 
 const task = (overrides: Partial<Task>): Task => ({
