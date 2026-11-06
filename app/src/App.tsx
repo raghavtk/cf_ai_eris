@@ -1,6 +1,6 @@
 import './App.css'
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import Navbar from './components/Navbar'
 import Tasks from './pages/Tasks'
@@ -10,11 +10,12 @@ import type { TaskRow } from './components/TaskTable'
 import NaturalLanguageInput from './components/NaturalLanguageInput'
 import type { ParsedTask } from './components/NaturalLanguageInput'
 import Schedule from './pages/Schedule'
+import NextActions from './pages/NextActions'
 import { taskService } from './services/taskService'
 import type { CreateTaskInput, Task } from './services/taskService'
 import { validateCreateTask } from '../../shared/contracts'
 import { authService } from './services/apiClient'
-import { mapTaskToRow, sampleTasks } from './demo'
+import { mapTaskToRow, createSampleTasks } from './demo'
 import type { DemoWorkspace } from './demo'
 import { About, LockedGitHub } from './pages/Showcase'
 import { ThemeProvider } from '@mui/material/styles'
@@ -69,6 +70,7 @@ function Home({ demo }: { demo?: DemoWorkspace }) {
         <p className='workspace-eyebrow'>Eris workspace</p>
         <h1>Plan your day</h1>
         <p>Add a task in plain language, then use your list to build a schedule.</p>
+        {demo && <Link to='/next'>Find my next task</Link>}
       </header>
 
       <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '40px' }}>
@@ -131,6 +133,7 @@ function AppContent({ demo }: { demo?: DemoWorkspace }) {
         <Route path='/' element={<Home demo={demo} />} />
         <Route path='/tasks' element={<Tasks demoCreate={demo?.createTask} />} />
         <Route path='/view-tasks' element={<ViewTasks demoTasks={demo?.tasks} />} />
+        {demo && <Route path='/next' element={<NextActions tasks={demo.tasks} />} />}
         <Route path='/schedule' element={<Schedule demoTasks={demo?.tasks} />} />
         <Route path='/github' element={demo ? <LockedGitHub /> : <Suspense fallback={<p role='status'>Loading GitHub…</p>}><GitHub /></Suspense>} />
         <Route path='/about' element={<About />} />
@@ -141,7 +144,7 @@ function AppContent({ demo }: { demo?: DemoWorkspace }) {
 }
 
 function Workspace({ owner, status }: { owner: boolean; status: string }) {
-  const [demoTasks, setDemoTasks] = useState(sampleTasks)
+  const [demoTasks, setDemoTasks] = useState(createSampleTasks)
   const createTask = async (input: CreateTaskInput): Promise<Task> => {
     const result = validateCreateTask(input)
     if (!result.success) throw new Error(Object.values(result.error.details ?? {})[0] ?? result.error.error)
