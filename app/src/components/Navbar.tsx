@@ -15,7 +15,7 @@ export default function Navbar({ owner }: { owner: boolean }) {
     <header className='workspace-header'>
       <div className='workspace-nav'>
         <NavLink to='/' className='workspace-brand' aria-label='Eris home'>
-          <span aria-hidden='true'>E</span> Eris
+          <img src={`${import.meta.env.BASE_URL}eris.svg`} alt='' width={32} height={32} /> Eris
         </NavLink>
         <nav className='workspace-links' aria-label='Workspace'>
           {navItems.map(({ label, path }) => <NavLink key={path} to={path} end>{label}</NavLink>)}

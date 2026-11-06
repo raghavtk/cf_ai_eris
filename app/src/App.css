@@ -1,6 +1,7 @@
 .workspace {
   min-height: 100vh;
-  background: var(--mui-palette-background-default);
+  background: radial-gradient(ellipse 55rem 38rem at 70% 0, #243957, transparent),
+    var(--mui-palette-background-default);
 }
 
 .workspace-header {
@@ -15,15 +16,6 @@
 
 .workspace-nav { display: flex; align-items: center; gap: 1.5rem; min-height: 4.5rem; }
 .workspace-brand { display: inline-flex; align-items: center; gap: .6rem; font-size: 1.15rem; font-weight: 800; }
-.workspace-brand span {
-  display: grid;
-  place-items: center;
-  background: var(--workspace-accent);
-  color: var(--mui-palette-primary-contrastText);
-  width: 2rem;
-  height: 2rem;
-  border-radius: .65rem;
-}
 .workspace-links { display: flex; flex-wrap: wrap; gap: .25rem; }
 .workspace-nav a { text-decoration: none; }
 .workspace-links a, .workspace-owner { padding: .45rem .75rem; border-radius: .5rem; font-size: .9rem; }
