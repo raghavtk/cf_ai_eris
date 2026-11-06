@@ -12,8 +12,8 @@ describe('Eris workspace', () => {
   beforeEach(() => localStorage.clear())
   afterEach(() => vi.restoreAllMocks())
 
-  it('lets a signed-out visitor parse, save, and plan with demo tasks without contacting the API', async () => {
-    const request = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected request'))
+  it('lets a signed-out visitor parse, save, and plan with demo tasks using only the public AI endpoint', async () => {
+    const request = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ parsed: { title: 'Draft the portfolio case study', estimated_duration: 90 } }))
     const workspace = openWorkspace()
 
     expect(screen.getByLabelText('Demo workspace')).toBeInTheDocument()
@@ -38,7 +38,19 @@ describe('Eris workspace', () => {
     openWorkspace('/view-tasks')
     expect(screen.getByRole('cell', { name: 'Review research notes' })).toBeInTheDocument()
     expect(screen.queryByRole('cell', { name: 'Draft the portfolio case study' })).toBeNull()
-    expect(request).not.toHaveBeenCalled()
+    expect(request).toHaveBeenCalledExactlyOnceWith('/api/demo/parse-task', expect.objectContaining({
+      method: 'POST', credentials: 'omit', body: JSON.stringify({ input: 'Draft the portfolio case study in 90 minutes' }),
+    }))
+  })
+
+  it('uses and labels the local parser when the daily budget is exhausted', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ code: 'demo_daily_limit' }, { status: 429 }))
+    openWorkspace()
+    fireEvent.click(screen.getByRole('button', { name: /Add a task/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use example' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Parse task' }))
+    expect(await screen.findByText(/shared live AI budget is used up/)).toBeInTheDocument()
+    expect(screen.getByText(/Draft the portfolio case study.*90m/)).toBeInTheDocument()
   })
 
   it('serves connector and About routes publicly without private data requests', async () => {

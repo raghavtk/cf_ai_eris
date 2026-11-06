@@ -1,6 +1,8 @@
 import type { CreateTaskInput, ParsedTask, Task } from '../../shared/contracts'
 import type { TaskRow } from './components/TaskTable'
 
+export const demoParsePath = '/api/demo/parse-task'
+
 export const demoPrompt = 'Draft the portfolio case study in 90 minutes'
 
 export function parseDemoTask(input: string): ParsedTask {
@@ -30,6 +32,26 @@ export const sampleTasks = seedTasks.map((task): Task => ({
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 }))
+
+export async function parsePublicTask(input: string): Promise<{ parsed: ParsedTask; notice?: string }> {
+  let notice = 'Live AI is unavailable. Showing a basic local parse.'
+  try {
+    const response = await fetch(demoParsePath, {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(12_000),
+      body: JSON.stringify({ input }),
+    })
+    const data = await response.json() as { parsed?: ParsedTask; code?: string }
+    if (response.ok && data.parsed?.title) return { parsed: data.parsed }
+    if (data.code === 'demo_daily_limit') notice = 'The shared live AI budget is used up for today. Showing a basic local parse.'
+    if (data.code === 'demo_rate_limit') notice = 'Live AI is temporarily rate limited. Showing a basic local parse.'
+  } catch {
+    // The local parser also works when the public endpoint is unreachable.
+  }
+  return { parsed: parseDemoTask(input), notice }
+}
 
 export type DemoWorkspace = {
   tasks: Task[]

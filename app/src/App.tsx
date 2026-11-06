@@ -158,7 +158,7 @@ function Workspace({ owner, status }: { owner: boolean; status: string }) {
         {!owner && (
           <aside className='demo-banner' aria-label='Demo workspace'>
             <strong>Interactive demo</strong>
-            <span>Sample data. Tasks reset on reload. The assistant runs a local simulation.</span>
+            <span>Sample data. Tasks reset on reload. Live AI is available within a shared daily budget.</span>
           </aside>
         )}
         {status && <p className='session-status' role='status'>{status}</p>}

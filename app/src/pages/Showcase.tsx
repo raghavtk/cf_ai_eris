@@ -39,7 +39,7 @@ export function About() {
         </article>
         <article>
           <h2>Demo and privacy</h2>
-          <p>This demo uses sample tasks, a local parser, and the same scheduling logic as the owner workspace. Cloudflare Access protects the Worker API and its D1 data.</p>
+          <p>The demo uses sample tasks and the same scheduler as the owner workspace. Task parsing uses Workers AI within a shared daily budget, with a basic local fallback. Cloudflare Access protects the owner API and its D1 data.</p>
         </article>
       </div>
       <a href='https://github.com/raghavtk/cf_ai_eris'>View the source on GitHub</a>

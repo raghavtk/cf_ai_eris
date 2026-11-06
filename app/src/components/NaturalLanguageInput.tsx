@@ -3,7 +3,7 @@ import { Modal, Box, Button, Typography } from '@mui/material'
 import { motion, AnimatePresence } from 'framer-motion'
 import { aiService } from '../services/aiService'
 import { taskService } from '../services/taskService'
-import { demoPrompt, parseDemoTask } from '../demo'
+import { demoPrompt, parsePublicTask } from '../demo'
 import type { CreateTaskInput, ParseHistoryItem, ParsedTask, Task } from '../../../shared/contracts'
 
 export type { ParsedTask }
@@ -48,6 +48,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated, demoCreate }: Prop
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [demoNotice, setDemoNotice] = useState('')
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [thread, setThread] = useState<ThreadItem[]>([])
@@ -89,10 +90,12 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated, demoCreate }: Prop
     setLoading(true)
     setError(null)
     setSaveMessage(null)
+    setDemoNotice('')
     try {
-      const res = demoCreate ? { parsed: parseDemoTask(input), history: [] } : await aiService.parseTask(input, sessionId)
+      const res = demoCreate ? await parsePublicTask(input) : await aiService.parseTask(input, sessionId)
+      if ('notice' in res && res.notice) setDemoNotice(res.notice)
       const parsed = res.parsed
-      const history = Array.isArray(res.history) ? res.history : []
+      const history = 'history' in res && Array.isArray(res.history) ? res.history : []
       if (history.length) {
         setThread(history.slice(-5))
       } else {
@@ -122,6 +125,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated, demoCreate }: Prop
     if (!demoCreate) window.localStorage.setItem(SESSION_KEY, next)
     setSessionId(next)
     setThread([])
+    setDemoNotice('')
     setInput('')
     setError(null)
     setSaveMessage(null)
@@ -224,6 +228,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated, demoCreate }: Prop
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     aria-label='Task prompt'
+                    maxLength={demoCreate ? 500 : undefined}
                     placeholder="E.g., Call with team tomorrow at 10am..."
                     style={{
                       width: '100%',
@@ -240,7 +245,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated, demoCreate }: Prop
                   />
                   {demoCreate && (
                     <Box sx={{ px: 3, pb: 2 }}>
-                      <Typography variant='body2' color='text.secondary'>Demo parser · Use the example or try your own task.</Typography>
+                      <Typography variant='body2' color='text.secondary'>Demo prompts are sent to Cloudflare Workers AI. Use the example or enter a task without personal details.</Typography>
                       <Button size='small' onClick={() => handleReuse(demoPrompt)}>Use example</Button>
                     </Box>
                   )}
@@ -281,7 +286,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated, demoCreate }: Prop
                               >
                                 Reuse
                               </Box>
-                              <Box
+                              {!demoCreate && <Box
                                 component='button'
                                 onClick={() => handleRefine(item)}
                                 sx={{
@@ -296,7 +301,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated, demoCreate }: Prop
                                 }}
                               >
                                 Refine
-                              </Box>
+                              </Box>}
                               <Box
                                 component='button'
                                 onClick={() => handleAddToDb(item, `${item.ts || idx}-save`)}
@@ -336,6 +341,7 @@ const NaturalLanguageInput = ({ onSavePreview, onTaskCreated, demoCreate }: Prop
                       <Typography color="error">{error}</Typography>
                     </Box>
                   )}
+                  {demoNotice && <Typography role='status' color='text.secondary' sx={{ px: 3, py: 1 }}>{demoNotice}</Typography>}
                   {saveMessage && (
                     <Box sx={{ px: 3, py: 1.5, borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
                       <Typography sx={{ color: '#86efac', fontSize: '0.85rem' }}>{saveMessage}</Typography>
