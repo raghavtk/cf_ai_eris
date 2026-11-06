@@ -2,15 +2,15 @@
   font-family: Inter, system-ui, sans-serif;
   color-scheme: dark;
   line-height: 1.5;
-  background: var(--mui-palette-background-default, #10171a);
-  color: var(--mui-palette-text-primary, #edf5f1);
+  background: var(--mui-palette-background-default, #0d1525);
+  color: var(--mui-palette-text-primary, #eaf0fa);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   --workspace-accent: var(--mui-palette-primary-main);
   --workspace-surface: var(--mui-palette-background-paper);
   --workspace-muted: var(--mui-palette-text-secondary);
-  --workspace-border: #37504b;
+  --workspace-border: #2b3d5a;
 }
 
 *, *::before, *::after { box-sizing: border-box; }

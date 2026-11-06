@@ -66,9 +66,9 @@ function Home({ demo }: { demo?: DemoWorkspace }) {
       className='workspace-home'
     >
       <header className='workspace-hero'>
-        <p className='workspace-eyebrow'>Your AI productivity workspace</p>
-        <h1>Make room for the work that matters.</h1>
-        <p>Capture tasks in plain language, prioritize the work, and turn your list into a daily plan.</p>
+        <p className='workspace-eyebrow'>Eris workspace</p>
+        <h1>Plan your day</h1>
+        <p>Add a task in plain language, then use your list to build a schedule.</p>
       </header>
 
       <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '40px' }}>

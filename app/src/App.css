@@ -1,10 +1,10 @@
 .workspace {
   min-height: 100vh;
-  background: radial-gradient(ellipse at 70% 0, #28413b 0, transparent 46rem);
+  background: var(--mui-palette-background-default);
 }
 
 .workspace-header {
-  background: #10191bee;
+  background: #101a2d;
   border-bottom: 1px solid var(--workspace-border);
 }
 
@@ -28,13 +28,13 @@
 .workspace-nav a { text-decoration: none; }
 .workspace-links a, .workspace-owner { padding: .45rem .75rem; border-radius: .5rem; font-size: .9rem; }
 .workspace-links a { color: var(--workspace-muted); }
-.workspace-links a:hover, .workspace-links a[aria-current='page'] { color: var(--workspace-accent); background: #253b35; }
+.workspace-links a:hover, .workspace-links a[aria-current='page'] { color: var(--workspace-accent); background: #203252; }
 .workspace-owner { margin-left: auto; flex: none; border: 1px solid var(--workspace-border); }
 .workspace-main { padding-block: 1.5rem 4rem; }
 
 .demo-banner, .session-status {
   border: 1px solid var(--workspace-border);
-  background: #1a2927;
+  background: #131f34;
   border-radius: .75rem;
   margin: 0 0 1.5rem;
   padding: .75rem 1rem;
@@ -44,10 +44,10 @@
 .demo-banner strong, .workspace-eyebrow { color: var(--workspace-accent); }
 .workspace-eyebrow { font-size: .77rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
 .workspace-home { display: grid; min-width: 0; }
-.workspace-hero { margin: clamp(1rem, 5vw, 4rem) auto 2.25rem; text-align: center; }
+.workspace-hero { margin: clamp(1rem, 3vw, 2.5rem) auto 1.75rem; text-align: center; }
 .workspace-hero h1, .showcase-panel h1 {
   margin: .45rem 0 1rem;
-  font-size: clamp(2.3rem, 6vw, 5rem);
+  font-size: clamp(2.25rem, 5vw, 3.75rem);
   line-height: 1.02;
   letter-spacing: -.055em;
 }
@@ -74,7 +74,7 @@
 .showcase-cards p, .locked-copy p { color: var(--workspace-muted); }
 .locked-panel { position: relative; isolation: isolate; display: grid; place-items: center; min-height: 16rem; text-align: center; }
 .locked-skeleton { position: absolute; inset: 1.25rem; display: grid; gap: .8rem; filter: blur(6px); opacity: .3; z-index: -1; }
-.locked-skeleton span { border-radius: .75rem; border: 1px solid #86b3a3; background: #38554a; }
+.locked-skeleton span { border-radius: .75rem; border: 1px solid #7592c0; background: #25395b; }
 .locked-copy { background: var(--workspace-surface); border-radius: .75rem; padding: 1.2rem; }
 
 @media (max-width: 850px) {
