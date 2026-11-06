@@ -5,6 +5,7 @@ const navItems = [
   { label: 'Overview', path: '/' },
   { label: 'Create Task', path: '/tasks' },
   { label: 'View Tasks', path: '/view-tasks' },
+  { label: 'What’s Next', path: '/next', demoOnly: true },
   { label: 'Schedule', path: '/schedule' },
   { label: 'GitHub', path: '/github' },
   { label: 'About', path: '/about' },
@@ -18,7 +19,7 @@ export default function Navbar({ owner }: { owner: boolean }) {
           <img src={`${import.meta.env.BASE_URL}eris.svg`} alt='' width={32} height={32} /> Eris
         </NavLink>
         <nav className='workspace-links' aria-label='Workspace'>
-          {navItems.map(({ label, path }) => <NavLink key={path} to={path} end>{label}</NavLink>)}
+          {navItems.filter((item) => !owner || !item.demoOnly).map(({ label, path }) => <NavLink key={path} to={path} end>{label}</NavLink>)}
         </nav>
         {owner
           ? <span className='workspace-owner'>Owner workspace</span>

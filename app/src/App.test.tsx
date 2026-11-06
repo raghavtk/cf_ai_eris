@@ -43,6 +43,21 @@ describe('Eris workspace', () => {
     }))
   })
 
+  it('recommends tasks that fit the selected time without an API request', async () => {
+    const request = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected request'))
+    openWorkspace('/next')
+    expect(screen.getByRole('heading', { name: 'What should I do next?' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review research notes' })).toBeInTheDocument()
+    expect(screen.getByText('Due today')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Prototype the dashboard' })).toBeNull()
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Time available' }))
+    fireEvent.click(await screen.findByRole('option', { name: '15 minutes' }))
+    expect(screen.queryByRole('heading', { name: 'Review research notes' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Write the weekly recap' })).toBeInTheDocument()
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it('uses and labels the local parser when the daily budget is exhausted', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ code: 'demo_daily_limit' }, { status: 429 }))
     openWorkspace()
