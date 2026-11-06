@@ -11,7 +11,7 @@ These commands are for an authenticated maintainer. Run production D1 commands f
 
 ## Single-user Cloudflare Access boundary
 
-The frontend is intentionally public as a portfolio preview. The Worker API is private and must be covered by a Cloudflare Access self-hosted application before personal data is deployed.
+The frontend hostname serves the public Eris workspace, including direct links to the task form, planner, GitHub preview, and About page. Keep this hostname outside the owner Access application. Demo tasks stay in browser memory and reset on reload. The composer sends the current prompt to the public frontend Worker for inference. Eris stores no public prompt history on the server. The Worker API is private and must be covered by a Cloudflare Access self-hosted application before personal data is deployed.
 
 1. In Cloudflare Zero Trust, create an Access application covering the Worker hostname and all paths.
 2. Add an Allow policy containing only the owner's exact email address. Do not add an Everyone rule.
@@ -21,9 +21,15 @@ The frontend is intentionally public as a portfolio preview. The Worker API is p
 6. For local development only, set `ERIS_LOCAL_DEV=true` in ignored `worker/.dev.vars`. The bypass also requires a loopback request hostname and otherwise fails closed.
 7. Deploy the Worker, then the frontend. Visit the public preview and use **Owner sign in** to establish the Access session.
 
-Verify in a private browser window that the preview loads without API traffic, direct API calls are challenged by Access, and an identity other than the owner cannot enter. From the owner browser, verify the login return, session check, tasks, AI, schedules, and metrics. Repeat with third-party cookies blocked if the hosts are cross-site; failure means the deployment is not ready for personal data. The Worker also validates the Access JWT and email, so a missing or inconsistent variable returns `401` even if the edge policy is accidentally broadened.
+On desktop and mobile, open a private browser window and verify that the demo loads without API traffic. Parsing should call only the same-origin public AI endpoint. Parse the example, add it to the task list, plan a day, reload to reset the sample tasks, and open the locked GitHub route. Verify that direct API calls are challenged by Access and that an identity other than the owner cannot enter. From the owner browser, verify the login return, session check, tasks, AI, schedules, and metrics. Repeat with third-party cookies blocked if the hosts are cross-site; failure means the deployment is not ready for personal data. The Worker also validates the Access JWT and email, so a missing or inconsistent variable returns `401` even if the edge policy is accidentally broadened.
 
 If the owner is locked out, confirm the Access application audience tag and team domain, restore the one-email Allow policy, and compare the deployed variable names with `wrangler secret list`/the Worker settings. Do not temporarily make the API public. Local `wrangler dev` remains available with the isolated `local-dev` owner for recovery and diagnosis.
+
+## Public demo AI budget
+
+Deploy the public frontend as the Worker from app/ so its AI, SQLite Durable Object, and rate limiter bindings are active. The Worker reserves 210 neurons per model call from a shared 6,000-neuron UTC daily budget, allowing 28 live requests a day at the current conservative reservation. This reservation covers the published Granite 4.0 H Micro context window and 256 output tokens, rounded up, and remains charged against the demo budget on provider errors. Recheck Cloudflare pricing and context limits before changing the model. Keep a single production budget namespace for all public hostnames. The budget applies to this demo endpoint only.
+
+The rate limiter allows three attempts per client IP per minute per Cloudflare location. When a limit is reached or inference fails, the composer explains the fallback and returns a basic local parse. During the release check, submit one example against the deployed hostname and verify a live result and one invocation in the Workers AI dashboard.
 
 ## Back up D1
 

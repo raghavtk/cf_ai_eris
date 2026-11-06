@@ -51,5 +51,11 @@ export const readApiResponse = async <T>(response: Response, fallbackMessage: st
 export const authService = {
   loginUrl: `${API_BASE}/api/auth/login`,
   session: () => apiFetch('/api/auth/session', { redirect: 'manual' })
-    .then((response) => readApiResponse<{ authenticated: true; owner: string }>(response, 'Unable to verify session')),
+    .then(async (response) => {
+      const session = await readApiResponse<{ authenticated?: unknown; owner?: unknown }>(response, 'Unable to verify session')
+      if (session?.authenticated !== true || typeof session.owner !== 'string' || !session.owner.trim()) {
+        throw new ApiRequestError('Unable to verify session', response.status, 'invalid_session')
+      }
+      return { authenticated: true as const, owner: session.owner }
+    }),
 }

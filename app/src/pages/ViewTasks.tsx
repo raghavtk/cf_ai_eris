@@ -2,45 +2,36 @@ import { useState, useEffect } from 'react'
 import { Box, Container } from '@mui/material'
 import TaskTable from '../components/TaskTable'
 import type { TaskRow } from '../components/TaskTable'
+import { mapTaskToRow } from '../demo'
+import type { Task } from '../../../shared/contracts'
 import { taskService } from '../services/taskService'
 
-const ViewTasks = () => {
+const ViewTasks = ({ demoTasks }: { demoTasks?: Task[] }) => {
   const [tasks, setTasks] = useState<TaskRow[]>([])
   const [loading, setLoading] = useState(true)
 
+  const isDemo = Boolean(demoTasks)
+
   useEffect(() => {
+    if (isDemo) return
     taskService
       .getAll()
-      .then((data) => {
-        const mapped: TaskRow[] = data.map((t) => ({
-          id: t.id,
-          title: t.title,
-          description: t.description,
-          priority: t.priority,
-          status: t.status,
-          category: t.category,
-          subcategory: t.subcategory,
-          dueDate: t.due_date,
-          estimatedDuration: t.estimated_duration,
-          note: t.note,
-        }))
-        setTasks(mapped)
-      })
+      .then((data) => setTasks(data.map(mapTaskToRow)))
       .catch((err) => console.error(err))
       .finally(() => setLoading(false))
-  }, [])
+  }, [isDemo])
 
   const handleDeleted = (id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id))
   }
 
   return (
-    <Box sx={{ bgcolor: '#0f172a', minHeight: 'calc(100vh - 80px)', py: 4 }}>
+    <Box sx={{ py: { xs: 0, md: 2 } }}>
       <Container maxWidth='lg'>
-        {loading ? (
+        {!isDemo && loading ? (
           <p style={{ color: '#e5e7eb', textAlign: 'center' }}>Loading tasks...</p>
         ) : (
-          <TaskTable tasks={tasks} onDeleted={handleDeleted} />
+          <TaskTable tasks={demoTasks?.map(mapTaskToRow) ?? tasks} onDeleted={handleDeleted} readOnly={isDemo} />
         )}
       </Container>
     </Box>

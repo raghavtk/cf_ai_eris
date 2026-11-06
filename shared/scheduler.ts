@@ -1,4 +1,4 @@
-import type { Task } from '../../shared/contracts'
+import type { Task } from './contracts'
 
 type BusyBlock = { task_id?: string | null; start_time: string; end_time: string }
 export type PlannedBlock = { task: Task; start_time: string; end_time: string }

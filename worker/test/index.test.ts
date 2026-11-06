@@ -224,20 +224,31 @@ describe('schedule API safety', () => {
 
 describe('single-user access boundary', () => {
   it.each([
-    ['tasks', '/api/tasks'],
-    ['AI', '/api/ai/parse-task'],
-    ['metrics', '/api/metrics/ai/summary'],
-    ['schedule', '/api/schedule?date=2026-08-27'],
-    ['GitHub', '/api/github/connections'],
-    ['session', '/api/auth/session'],
-    ['root', '/'],
-  ])('rejects unauthenticated production %s requests before using private bindings', async (_name, path) => {
+    ['task list', 'GET', '/api/tasks'],
+    ['task creation', 'POST', '/api/tasks', { title: 'Unauthorized task' }],
+    ['task deletion', 'DELETE', '/api/tasks/private-id'],
+    ['AI parsing', 'POST', '/api/ai/parse-task', { input: 'Unauthorized prompt' }],
+    ['metrics', 'GET', '/api/metrics/ai/summary'],
+    ['schedule', 'GET', '/api/schedule?date=2026-08-27'],
+    ['GitHub', 'GET', '/api/github/connections'],
+    ['session', 'GET', '/api/auth/session'],
+    ['root', 'GET', '/'],
+  ])('rejects unauthenticated %s requests on the alternate Worker hostname', async (_name, method, path, body) => {
     const { env, db, fetch } = createEnv(Response.json({ error: 'unused' }))
-    const request = new Request(`https://worker.example${path}`)
+    Object.assign(env, {
+      ERIS_ALLOWED_ORIGIN: 'https://eris.example',
+      ERIS_ALLOWED_EMAIL: 'owner@example.com',
+      TEAM_DOMAIN: 'https://eris.cloudflareaccess.com',
+      POLICY_AUD: 'audience',
+    })
+    const request = new Request('https://eris.example-account.workers.dev' + path, {
+      method, headers: { Origin: 'https://eris.example' }, body: body ? JSON.stringify(body) : undefined,
+    })
     Object.defineProperty(request, 'cf', { value: { colo: 'IAD' } })
     const response = await worker.fetch(request, env as any)
 
     expect(response.status).toBe(401)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
     await expect(response.json()).resolves.toEqual({
       error: 'Authentication is required',
       code: 'authentication_required',
@@ -266,6 +277,7 @@ describe('single-user access boundary', () => {
     const { env } = createEnv(Response.json({ error: 'unused' }))
     const response = await worker.fetch(new Request('http://localhost:8787/api/auth/session'), env as any)
     expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
     await expect(response.json()).resolves.toEqual({ authenticated: true, owner: 'local-dev' })
   })
 

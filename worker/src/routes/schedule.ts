@@ -1,6 +1,6 @@
 import { validateCreateScheduleEntry, validateDailyPlan } from '../../../shared/contracts'
 import type { ApiError, ScheduleEntry, Task } from '../../../shared/contracts'
-import { buildDailyPlan } from '../scheduler'
+import { buildDailyPlan } from '../../../shared/scheduler'
 
 export interface ScheduleEnv {
   DB: D1Database

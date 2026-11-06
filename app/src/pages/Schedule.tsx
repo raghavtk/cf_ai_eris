@@ -4,6 +4,7 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import type { ScheduleEntry, Task } from '../../../shared/contracts'
 import { scheduleService } from '../services/scheduleService'
+import { buildDailyPlan } from '../../../shared/scheduler'
 import ScheduleTimeline from '../components/ScheduleTimeline'
 import './Schedule.css'
 
@@ -12,7 +13,7 @@ const localDate = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
-export default function Schedule() {
+export default function Schedule({ demoTasks }: { demoTasks?: Task[] }) {
   const [date, setDate] = useState(localDate)
   const [start, setStart] = useState('09:00')
   const [end, setEnd] = useState('17:00')
@@ -23,31 +24,47 @@ export default function Schedule() {
   const [error, setError] = useState('')
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
+  const isDemo = Boolean(demoTasks)
   const load = useCallback(async () => {
     setLoading(true); setError('')
-    try { setEntries(await scheduleService.getDay(date)); setUnscheduled([]) }
+    try { setEntries(isDemo ? [] : await scheduleService.getDay(date)); setUnscheduled([]) }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not load the schedule') }
     finally { setLoading(false) }
-  }, [date])
+  }, [date, isDemo])
   useEffect(() => { void load() }, [load])
 
   const plan = async () => {
     setPlanning(true); setError('')
     try {
+      if (demoTasks) {
+        if (!date || !start || !end || start >= end) throw new Error('Choose a date and a workday end after its start.')
+        const { planned, unscheduled } = buildDailyPlan(demoTasks, [], date, start, end)
+        setEntries(planned.map(({ task, start_time, end_time }) => ({
+          id: task.id, owner_id: 'demo', task_id: task.id, title: task.title,
+          scheduled_date: date, start_time, end_time, timezone, locked: 0, source: 'local',
+          external_calendar_id: null, external_event_id: null, external_etag: null,
+          sync_status: 'local', last_synced_at: null, created_at: task.created_at, updated_at: task.updated_at,
+        })))
+        setUnscheduled(unscheduled)
+        return
+      }
       const result = await scheduleService.planDay({ date, timezone, workday_start: start, workday_end: end })
       setEntries(result.entries); setUnscheduled(result.unscheduled)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not plan the day') }
     finally { setPlanning(false) }
   }
   const remove = async (entry: ScheduleEntry) => {
-    try { await scheduleService.delete(entry.id); setEntries((current) => current.filter((item) => item.id !== entry.id)) }
+    try {
+      if (!isDemo) await scheduleService.delete(entry.id)
+      setEntries((current) => current.filter((item) => item.id !== entry.id))
+    }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not remove the block') }
   }
 
   return (
     <Container maxWidth='lg' className='schedule-page'>
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent='space-between' gap={3} mb={3}>
-        <Box><Typography variant='h3' fontWeight={800} color='#f8fafc'>Daily planner</Typography><Typography color='#94a3b8'>A realistic, hour-by-hour plan in {timezone}.</Typography></Box>
+        <Box><Typography component='h1' variant='h3' fontWeight={800} color='text.primary'>Daily planner</Typography><Typography color='#94a3b8'>A realistic, hour-by-hour plan in {timezone}.</Typography></Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems='center'>
           <TextField type='date' size='small' value={date} onChange={(event) => setDate(event.target.value)} inputProps={{ 'aria-label': 'Schedule date' }} />
           <TextField type='time' size='small' label='Start' value={start} onChange={(event) => setStart(event.target.value)} InputLabelProps={{ shrink: true }} />
@@ -55,6 +72,9 @@ export default function Schedule() {
           <Button variant='contained' startIcon={<AutoAwesomeIcon />} onClick={plan} disabled={planning} sx={{ whiteSpace: 'nowrap' }}>{planning ? 'Planning…' : 'Plan my day'}</Button>
         </Stack>
       </Stack>
+      {isDemo && !entries.length && !unscheduled.length && !error && (
+        <Alert severity='info' sx={{ mb: 2 }}>Select Plan my day to schedule your sample tasks.</Alert>
+      )}
       {error && <Alert severity='error' sx={{ mb: 2 }}>{error}</Alert>}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} alignItems='flex-start'>
         <ScheduleTimeline entries={entries} loading={loading} workdayStart={start} workdayEnd={end} onRemove={(entry) => void remove(entry)} />
