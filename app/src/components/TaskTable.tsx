@@ -1,24 +1,13 @@
-import { motion, AnimatePresence } from "framer-motion"
-import { useEffect, useMemo, useState } from 'react'
-import {
-  Button,
-  Checkbox,
-  MenuItem,
-  Paper,
-  Select,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
+import { useEffect, useId, useMemo, useState } from 'react'
+import { Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField } from '@mui/material'
+import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined'
+import ChevronRight from '@mui/icons-material/ChevronRight'
+import './TaskTable.css'
 import { aiService } from '../services/aiService'
 import { taskService } from '../services/taskService'
-import type { AiResult, Task, UpdateTaskInput } from '../../../shared/contracts'
+import { mapTaskToRow } from '../demo'
+import { localDate } from '../localDate'
+import type { AiResult, UpdateTaskInput } from '../../../shared/contracts'
 
 export type TaskRow = {
   id: string
@@ -44,7 +33,11 @@ const TaskTable = ({ tasks, onDeleted, readOnly = false }: Props) => {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [aiMessage, setAiMessage] = useState('')
   const [busy, setBusy] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const detailTitleId = useId()
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [view, setView] = useState<'table' | 'queue'>('table')
+  const [columns, setColumns] = useState({ priority: true, dueDate: true, note: false })
   const [editDraft, setEditDraft] = useState<TaskRow | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
 
@@ -55,18 +48,15 @@ const TaskTable = ({ tasks, onDeleted, readOnly = false }: Props) => {
 
   const selectedTasks = useMemo(() => rows.filter((r) => selected.has(r.id)), [rows, selected])
 
-  const mapApiTask = (t: Task): TaskRow => ({
-    id: t.id,
-    title: t.title,
-    description: t.description,
-    priority: t.priority,
-    status: t.status,
-    category: t.category,
-    subcategory: t.subcategory,
-    dueDate: t.due_date,
-    estimatedDuration: t.estimated_duration,
-    note: t.note,
-  })
+  const openTask = rows.find((row) => row.id === openId)
+  const today = localDate()
+  const groups = view === 'table' ? [{ label: '', tasks: rows }] : [
+    { label: 'Overdue', tasks: rows.filter((row) => isOpen(row) && row.dueDate && row.dueDate < today) },
+    { label: 'Due today', tasks: rows.filter((row) => isOpen(row) && row.dueDate === today) },
+    { label: 'Later', tasks: rows.filter((row) => isOpen(row) && (!row.dueDate || row.dueDate > today)) },
+    { label: 'Closed', tasks: rows.filter((row) => !isOpen(row)) },
+  ].filter((group) => group.tasks.length)
+  const columnCount = 3 + Number(!readOnly) + Object.values(columns).filter(Boolean).length
 
   const pickMatch = (values: Array<unknown>, pattern: RegExp) => {
     for (const value of values) {
@@ -120,10 +110,8 @@ const TaskTable = ({ tasks, onDeleted, readOnly = false }: Props) => {
 
   const refreshRows = async () => {
     const all = await taskService.getAll()
-    setRows(all.map(mapApiTask))
+    setRows(all.map(mapTaskToRow))
     setSelected(new Set())
-    setEditingId(null)
-    setEditDraft(null)
   }
 
   const toggleSelect = (id: string) => {
@@ -135,19 +123,15 @@ const TaskTable = ({ tasks, onDeleted, readOnly = false }: Props) => {
     })
   }
 
-  const startEdit = (row: TaskRow) => {
-    setSelected(new Set([row.id]))
-    setEditingId(row.id)
-    setEditDraft({ ...row })
-  }
-
-  const cancelEdit = () => {
-    setEditingId(null)
+  const closeTask = () => {
+    setOpenId(null)
     setEditDraft(null)
+    setError('')
   }
 
   const saveEdit = async () => {
-    if (!editingId || !editDraft) return
+    if (readOnly || savingEdit || !openTask || !editDraft) return
+    setError('')
     setSavingEdit(true)
     try {
       const payload: UpdateTaskInput = {
@@ -162,47 +146,37 @@ const TaskTable = ({ tasks, onDeleted, readOnly = false }: Props) => {
         note: editDraft.note,
       }
 
-      const updated = await taskService.update(editingId, payload)
-      setRows((prev) =>
-        prev.map((r) =>
-          r.id === editingId
-            ? {
-                id: updated.id,
-                title: updated.title,
-                description: updated.description,
-                priority: updated.priority,
-                status: updated.status,
-                category: updated.category,
-                subcategory: updated.subcategory,
-                dueDate: updated.due_date,
-                estimatedDuration: updated.estimated_duration,
-                note: updated.note,
-              }
-            : r,
-        ),
-      )
-      cancelEdit()
+      const updated = await taskService.update(openTask.id, payload)
+      setRows((prev) => prev.map((row) => row.id === updated.id ? mapTaskToRow(updated) : row))
+      setEditDraft(null)
     } catch (err) {
       console.error(err)
-      alert('Failed to update task')
+      setError('Could not save the task. Your edits are still here. Try again.')
     } finally {
       setSavingEdit(false)
     }
   }
 
   const handleDelete = async (id: string) => {
+    if (readOnly || savingEdit) return
+    setSavingEdit(true)
+    setError('')
     try {
       await taskService.delete(id)
       setRows((prev) => prev.filter((r) => r.id !== id))
+      setSelected((current) => new Set([...current].filter((selectedId) => selectedId !== id)))
+      closeTask()
       onDeleted?.(id)
     } catch (err) {
       console.error(err)
-      alert('Failed to delete task')
+      setError('Could not delete the task. Try again.')
+    } finally {
+      setSavingEdit(false)
     }
   }
 
   const runEstimate = async () => {
-    if (!selectedTasks.length) return
+    if (readOnly || busy || !selectedTasks.length) return
     setBusy(true)
     try {
       await Promise.all(
@@ -265,304 +239,192 @@ const TaskTable = ({ tasks, onDeleted, readOnly = false }: Props) => {
     }
   }
 
+  const updateDraft = <Key extends keyof TaskRow>(key: Key, value: TaskRow[Key]) => {
+    setEditDraft((draft) => draft && { ...draft, [key]: value })
+  }
+
   return (
-    <Paper elevation={2} sx={{ p: 2, borderRadius: 2, bgcolor: 'background.paper', color: 'text.primary' }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent='space-between' mb={2}>
-        <Typography variant='h6' fontWeight={700}>
-          Tasks
-        </Typography>
-        <Stack direction='row' useFlexGap flexWrap='wrap' spacing={1}>
-          <Button
-            variant='contained'
-            size='small'
-            onClick={runEstimate}
-            disabled={readOnly || !selectedTasks.length || busy}
-            sx={{
-              borderColor: 'primary.main',
-              fontFamily: 'Helvetica, Arial, sans-serif',
-              fontWeight: 600,
-              textTransform: 'none',
-            }}
-          >
-            Estimate time
-          </Button>
-          <Button
-            variant='contained'
-            size='small'
-            onClick={runPriority}
-            disabled={readOnly || !selectedTasks.length || busy}
-            sx={{
-              borderColor: 'primary.main',
-              fontFamily: 'Helvetica, Arial, sans-serif',
-              fontWeight: 600,
-              textTransform: 'none',
-            }}
-          >
-            Assign priority
-          </Button>
-          <Button
-            variant='contained'
-            size='small'
-            onClick={runCategorize}
-            disabled={readOnly || !selectedTasks.length || busy}
-            sx={{
-              borderColor: 'primary.main',
-              fontFamily: 'Helvetica, Arial, sans-serif',
-              fontWeight: 600,
-              textTransform: 'none',
-            }}
-          >
-            Categorize tasks
-          </Button>
-        </Stack>
-      </Stack>
-      {readOnly && <Typography variant='body2' color='text.secondary' mb={2}>Sample tasks. Database editing and AI enrichment are available in the owner workspace.</Typography>}
-      {aiMessage && (
-        <Typography variant='body2' sx={{ mb: 1, color: '#cbd5e1', fontFamily: 'Helvetica, Arial, sans-serif' }}>
-          {aiMessage}
-        </Typography>
-      )}
-      <TableContainer sx={{ maxHeight: 480 }}>
-        <Table stickyHeader size='small'>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }} padding='checkbox'>
-                <Checkbox
-                  inputProps={{ 'aria-label': 'Select all tasks' }}
-                  size='small'
-                  disabled={readOnly}
-                  sx={{ color: '#e5e7eb' }}
-                  indeterminate={selected.size > 0 && selected.size < rows.length}
-                  checked={selected.size === rows.length && rows.length > 0}
-                  onChange={(e) => {
-                    if (e.target.checked) setSelected(new Set(rows.map((r) => r.id)))
-                    else setSelected(new Set())
-                  }}
-                />
-              </TableCell>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }}>Title</TableCell>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }}>Description</TableCell>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }}>Priority</TableCell>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }}>Status</TableCell>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }}>Category</TableCell>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }}>Subcategory</TableCell>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }}>Due Date</TableCell>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }}>Est. (min)</TableCell>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }}>Note</TableCell>
-              <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.06)', color: '#e5e7eb' }} align='right'>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-<AnimatePresence>
-            {rows.map((row) => {
-              const isSelected = selected.has(row.id)
-              const isEditing = editingId === row.id
-              return (
-                <TableRow component={motion.tr} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.2 }} key={row.id} hover selected={isSelected}>
-                  <TableCell padding='checkbox' sx={{ color: '#e5e7eb' }}>
+    <section className='task-database' aria-label='Tasks'>
+      <header className='task-database-header'>
+        <div className='task-database-title'>
+          <h2>Tasks</h2>
+          <span>{rows.length} {rows.length === 1 ? 'task' : 'tasks'}</span>
+        </div>
+        <div className='task-database-tools' role='group' aria-label='Task controls'>
+          <div className='task-view-switch' role='group' aria-label='Task view'>
+            <button type='button' aria-pressed={view === 'table'} onClick={() => setView('table')}>Table</button>
+            <button type='button' aria-pressed={view === 'queue'} onClick={() => setView('queue')}>Work queue</button>
+          </div>
+          {!readOnly && selectedTasks.length > 0 && <span>{selectedTasks.length} selected</span>}
+          <Button size='small' disabled={readOnly || busy || !selectedTasks.length} onClick={runEstimate}>Estimate time</Button>
+          <Button size='small' disabled={readOnly || busy || !selectedTasks.length} onClick={runPriority}>Assign priority</Button>
+          <Button size='small' disabled={readOnly || busy || !selectedTasks.length} onClick={runCategorize}>Categorize tasks</Button>
+          <details className='task-columns'>
+            <summary>Columns</summary>
+            <fieldset>
+              <legend>Additional properties</legend>
+              {([
+                ['priority', 'Priority'],
+                ['dueDate', 'Due date'],
+                ['note', 'Notes'],
+              ] as const).map(([key, label]) => (
+                <label key={key}>
+                  <input type='checkbox' checked={columns[key]} onChange={(event) => {
+                    const checked = event.target.checked
+                    setColumns((current) => ({ ...current, [key]: checked }))
+                  }} />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
+          </details>
+        </div>
+      </header>
+      {readOnly && <p className='task-database-caption'>Open a task to see its details. Editing and AI tools require owner access.</p>}
+      <div role='status' className='task-database-status'>{busy ? 'Updating selected tasks…' : aiMessage}</div>
+
+      {rows.length ? (
+        <div className='task-database-scroll'>
+          <table aria-label='Task database' className={columns.note ? 'task-table-with-notes' : undefined}>
+            <thead>
+              <tr>
+                {!readOnly && <th scope='col' className='task-select'>
+                  <Checkbox
+                    size='small'
+                    inputProps={{ 'aria-label': 'Select all tasks' }}
+                    checked={selectedTasks.length === rows.length}
+                    indeterminate={selectedTasks.length > 0 && selectedTasks.length < rows.length}
+                    onChange={(event) => setSelected(event.target.checked ? new Set(rows.map(({ id }) => id)) : new Set())}
+                  />
+                </th>}
+                <th scope='col' className='task-name-column'>Task</th>
+                <th scope='col' className='task-status-column'>Status</th>
+                {columns.priority && <th scope='col' className='task-secondary task-priority-column'>Priority</th>}
+                {columns.dueDate && <th scope='col' className='task-secondary task-date-column'>Due date</th>}
+                <th scope='col' className='task-estimate'>Estimate</th>
+                {columns.note && <th scope='col' className='task-secondary task-note-column'>Notes</th>}
+              </tr>
+            </thead>
+            {groups.map(({ label, tasks }) => (
+              <tbody key={label} aria-label={label || undefined}>
+                {label && <tr className='task-group-heading'><th scope='rowgroup' colSpan={columnCount}>{label} <span>{tasks.length}</span></th></tr>}
+                {tasks.map((row) => (
+                <tr key={row.id} data-selected={selected.has(row.id)}>
+                  {!readOnly && <td className='task-select'>
                     <Checkbox
-                      inputProps={{ 'aria-label': `Select ${row.title}` }}
                       size='small'
-                      disabled={readOnly}
-                      sx={{ color: '#e5e7eb' }}
-                      checked={isSelected}
+                      inputProps={{ 'aria-label': 'Select ' + row.title }}
+                      checked={selected.has(row.id)}
                       onChange={() => toggleSelect(row.id)}
                     />
-                  </TableCell>
-                  <TableCell sx={{ color: '#e5e7eb' }}>
-                    {isEditing ? (
-                      <TextField
-                        size='small'
-                        value={editDraft?.title ?? ''}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, title: e.target.value } : d))}
-                        sx={{ input: { color: '#e5e7eb' } }}
-                      />
-                    ) : (
-                      row.title
+                  </td>}
+                  <td className='task-name-cell'>
+                    <button type='button' className='task-name' aria-haspopup='dialog' onClick={() => setOpenId(row.id)}>
+                      <DescriptionOutlined aria-hidden='true' fontSize='inherit' />
+                      <span>{row.title}</span>
+                      <ChevronRight className='task-open-icon' aria-hidden='true' fontSize='inherit' />
+                    </button>
+                    <span className='task-category'>{[categoryLabels[row.category], row.subcategory].filter(Boolean).join(' / ')}</span>
+                    {row.description && <span className='task-description'>{row.description}</span>}
+                    {((columns.dueDate && row.dueDate) || (columns.priority && row.priority === 'high') || (columns.note && row.note)) && (
+                      <span className='task-mobile-properties'>
+                        {columns.priority && row.priority === 'high' && <span data-priority='high'>High priority</span>}
+                        {columns.dueDate && row.dueDate && <time dateTime={row.dueDate}>Due {formatDueDate(row.dueDate, today)}</time>}
+                        {columns.note && row.note && <span className='task-note'>Note: {row.note}</span>}
+                      </span>
                     )}
-                  </TableCell>
-                  <TableCell sx={{ color: '#e5e7eb' }}>
-                    {isEditing ? (
-                      <TextField
-                        size='small'
-                        value={editDraft?.description ?? ''}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, description: e.target.value } : d))}
-                        sx={{ input: { color: '#e5e7eb' } }}
-                      />
-                    ) : (
-                      row.description
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ color: '#e5e7eb' }}>
-                    {isEditing ? (
-                      <Select
-                        size='small'
-                        value={editDraft?.priority ?? row.priority}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, priority: e.target.value as TaskRow['priority'] } : d))}
-                        sx={{ color: '#e5e7eb' }}
-                      >
-                        <MenuItem value='high'>high</MenuItem>
-                        <MenuItem value='medium'>medium</MenuItem>
-                        <MenuItem value='low'>low</MenuItem>
-                      </Select>
-                    ) : (
-                      row.priority
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ color: '#e5e7eb' }}>
-                    {isEditing ? (
-                      <Select
-                        size='small'
-                        value={editDraft?.status ?? row.status}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, status: e.target.value as TaskRow['status'] } : d))}
-                        sx={{ color: '#e5e7eb' }}
-                      >
-                        <MenuItem value='pending'>pending</MenuItem>
-                        <MenuItem value='in_progress'>in_progress</MenuItem>
-                        <MenuItem value='completed'>completed</MenuItem>
-                        <MenuItem value='cancelled'>cancelled</MenuItem>
-                      </Select>
-                    ) : (
-                      row.status
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ color: '#e5e7eb' }}>
-                    {isEditing ? (
-                      <Select
-                        size='small'
-                        value={editDraft?.category ?? row.category}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, category: e.target.value as TaskRow['category'] } : d))}
-                        sx={{ color: '#e5e7eb' }}
-                      >
-                        <MenuItem value='work'>work</MenuItem>
-                        <MenuItem value='personal'>personal</MenuItem>
-                        <MenuItem value='other'>other</MenuItem>
-                      </Select>
-                    ) : (
-                      row.category
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ color: '#e5e7eb' }}>
-                    {isEditing ? (
-                      <TextField
-                        size='small'
-                        value={editDraft?.subcategory ?? ''}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, subcategory: e.target.value } : d))}
-                        sx={{ input: { color: '#e5e7eb' } }}
-                      />
-                    ) : (
-                      row.subcategory
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ color: '#e5e7eb' }}>
-                    {isEditing ? (
-                      <TextField
-                        size='small'
-                        type='date'
-                        value={editDraft?.dueDate ?? ''}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, dueDate: e.target.value } : d))}
-                        InputLabelProps={{ shrink: true }}
-                        sx={{ input: { color: '#e5e7eb' } }}
-                      />
-                    ) : (
-                      row.dueDate || '—'
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ color: '#e5e7eb' }}>
-                    {isEditing ? (
-                      <TextField
-                        size='small'
-                        type='number'
-                        value={editDraft?.estimatedDuration ?? ''}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, estimatedDuration: Number(e.target.value) } : d))}
-                        sx={{ input: { color: '#e5e7eb' } }}
-                      />
-                    ) : (
-                      row.estimatedDuration ?? '—'
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ color: '#e5e7eb', maxWidth: 180 }}>
-                    {isEditing ? (
-                      <TextField
-                        size='small'
-                        value={editDraft?.note ?? ''}
-                        onChange={(e) => setEditDraft((d) => (d ? { ...d, note: e.target.value } : d))}
-                        sx={{ input: { color: '#e5e7eb' } }}
-                      />
-                    ) : (
-                      row.note
-                    )}
-                  </TableCell>
-                  <TableCell align='right' sx={{ color: '#e5e7eb' }}>
-                    {isEditing ? (
-                      <Stack direction='row' spacing={1} justifyContent='flex-end'>
-                        <Button
-                          size='small'
-                          variant='outlined'
-                          color='inherit'
-                          onClick={cancelEdit}
-                          disabled={savingEdit}
-                          sx={{ textTransform: 'none', color: '#e5e7eb', borderColor: '#9ca3af' }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size='small'
-                          variant='contained'
-                          color='primary'
-                          onClick={saveEdit}
-                          disabled={savingEdit}
-                          sx={{ textTransform: 'none', fontWeight: 600 }}
-                        >
-                          {savingEdit ? 'Saving...' : 'Save'}
-                        </Button>
-                      </Stack>
-                    ) : (
-                      <Stack direction='row' spacing={1} justifyContent='flex-end'>
-                        <Button
-                          size='small'
-                          variant='contained'
-                          onClick={() => startEdit(row)}
-                          disabled={readOnly || !isSelected || busy}
-                          sx={{
-                            textTransform: 'none',
-                            fontWeight: 600,
-                            bgcolor: '#2563eb',
-                            color: '#f8fafc',
-                            '&:hover': { bgcolor: '#1d4ed8' },
-                          }}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          size='small'
-                          variant='contained'
-                          color='error'
-                          onClick={() => handleDelete(row.id)}
-                          disabled={readOnly || busy}
-                          sx={{
-                            textTransform: 'none',
-                            bgcolor: '#b91c1c',
-                            color: '#f8fafc',
-                            fontWeight: 600,
-                            fontFamily: 'Helvetica, Arial, sans-serif',
-                            '&:hover': { bgcolor: '#dc2626' },
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </Stack>
-                    )}
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </AnimatePresence>
-</TableBody>
-        </Table>
-      </TableContainer>
-    </Paper>
+                  </td>
+                  <td><span className='task-status' data-status={row.status}>{statusLabels[row.status]}</span></td>
+                  {columns.priority && <td className='task-secondary' data-priority={row.priority}>{priorityLabels[row.priority]}</td>}
+                  {columns.dueDate && <td className='task-secondary'>{row.dueDate
+                    ? <time dateTime={row.dueDate}>{formatDueDate(row.dueDate, today)}</time>
+                    : <span className='task-unset'>—</span>}</td>}
+                  <td className='task-estimate'>{row.estimatedDuration > 0 ? row.estimatedDuration + ' min' : <span className='task-unset'>—</span>}</td>
+                  {columns.note && <td className='task-secondary'><span className='task-note'>{row.note || '—'}</span></td>}
+                </tr>
+              ))}
+              </tbody>
+            ))}
+          </table>
+        </div>
+      ) : <p className='task-database-empty'>No tasks yet. Create a task to add it to this table.</p>}
+
+      <Dialog aria-labelledby={detailTitleId} open={Boolean(openTask)} onClose={savingEdit ? undefined : closeTask} fullWidth maxWidth='sm'>
+        {openTask && (
+          <>
+            <DialogTitle id={detailTitleId} className='task-detail-title'>{editDraft ? 'Edit task' : openTask.title}</DialogTitle>
+            <DialogContent dividers>
+              {editDraft ? (
+                <fieldset className='task-detail-form' disabled={savingEdit} aria-label='Task properties'>
+                  <TextField label='Title' value={editDraft.title} onChange={(event) => updateDraft('title', event.target.value)} autoFocus fullWidth />
+                  <TextField label='Description' value={editDraft.description} onChange={(event) => updateDraft('description', event.target.value)} multiline fullWidth />
+                  <div className='task-detail-grid'>
+                    <TextField select disabled={savingEdit} label='Status' value={editDraft.status} onChange={(event) => updateDraft('status', event.target.value as TaskRow['status'])}>
+                      {Object.entries(statusLabels).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
+                    </TextField>
+                    <TextField select disabled={savingEdit} label='Priority' value={editDraft.priority} onChange={(event) => updateDraft('priority', event.target.value as TaskRow['priority'])}>
+                      {Object.entries(priorityLabels).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
+                    </TextField>
+                    <TextField select disabled={savingEdit} label='Category' value={editDraft.category} onChange={(event) => updateDraft('category', event.target.value as TaskRow['category'])}>
+                      {Object.entries(categoryLabels).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
+                    </TextField>
+                    <TextField label='Subcategory' value={editDraft.subcategory} onChange={(event) => updateDraft('subcategory', event.target.value)} />
+                    <TextField label='Due date' type='date' slotProps={{ inputLabel: { shrink: true } }} value={editDraft.dueDate} onChange={(event) => updateDraft('dueDate', event.target.value)} />
+                    <TextField label='Estimate (minutes)' type='number' value={editDraft.estimatedDuration} onChange={(event) => updateDraft('estimatedDuration', Number(event.target.value))} />
+                  </div>
+                  <TextField label='Note' value={editDraft.note} onChange={(event) => updateDraft('note', event.target.value)} multiline fullWidth />
+                </fieldset>
+              ) : (
+                <dl className='task-properties'>
+                  <dt>Status</dt><dd>{statusLabels[openTask.status]}</dd>
+                  <dt>Priority</dt><dd>{priorityLabels[openTask.priority]}</dd>
+                  <dt>Category</dt><dd>{categoryLabels[openTask.category]}</dd>
+                  <dt>Subcategory</dt><dd>{openTask.subcategory || '—'}</dd>
+                  <dt>Due date</dt><dd>{openTask.dueDate
+                    ? <time dateTime={openTask.dueDate}>{formatDueDate(openTask.dueDate)}</time>
+                    : '—'}</dd>
+                  <dt>Estimate</dt><dd>{openTask.estimatedDuration > 0 ? openTask.estimatedDuration + ' min' : '—'}</dd>
+                  <dt>Description</dt><dd>{openTask.description || '—'}</dd>
+                  <dt>Note</dt><dd>{openTask.note || '—'}</dd>
+                </dl>
+              )}
+              {error && <p role='alert'>{error}</p>}
+            </DialogContent>
+            <DialogActions>
+              {editDraft ? (
+                <>
+                  <Button disabled={savingEdit} onClick={() => { setEditDraft(null); setError('') }}>Cancel</Button>
+                  <Button variant='contained' disabled={savingEdit} onClick={saveEdit}>{savingEdit ? 'Saving…' : 'Save'}</Button>
+                </>
+              ) : (
+                <>
+                  {!readOnly && <Button color='error' disabled={busy || savingEdit} onClick={() => handleDelete(openTask.id)}>Delete</Button>}
+                  <Button disabled={savingEdit} onClick={closeTask}>Close</Button>
+                  {!readOnly && <Button variant='contained' disabled={busy || savingEdit} onClick={() => { setError(''); setEditDraft({ ...openTask }) }}>Edit</Button>}
+                </>
+              )}
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+    </section>
   )
+}
+
+const isOpen = (task: TaskRow) => task.status === 'pending' || task.status === 'in_progress'
+
+const statusLabels = { pending: 'Pending', in_progress: 'In progress', completed: 'Completed', cancelled: 'Cancelled' }
+const priorityLabels = { high: 'High', medium: 'Medium', low: 'Low' }
+const categoryLabels = { work: 'Work', personal: 'Personal', other: 'Other' }
+
+function formatDueDate(value: string, today?: string) {
+  if (value === today) return 'Today'
+  const date = new Date(value + 'T00:00:00Z')
+  if (Number.isNaN(date.getTime())) return value
+  const showYear = !today || value.slice(0, 4) !== today.slice(0, 4)
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short', day: 'numeric', year: showYear ? 'numeric' : undefined, timeZone: 'UTC',
+  }).format(date)
 }
 
 export default TaskTable
