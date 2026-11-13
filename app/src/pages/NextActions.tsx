@@ -1,56 +1,108 @@
-import { useState } from 'react'
-import { Chip, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Task } from '../../../shared/contracts'
 import { recommendNext } from '../recommendNext'
 import { localDate } from '../localDate'
+import './NextActions.css'
 
 const timeOptions = [15, 30, 60, 120]
 
+function taskDetails(task: Task, deadline: string | null) {
+  return [deadline, task.priority + ' priority', task.status === 'in_progress' && 'In progress']
+    .filter(Boolean)
+    .join(' · ')
+}
+
 export default function NextActions({ tasks }: { tasks: Task[] }) {
   const [minutes, setMinutes] = useState(30)
-  const recommendations = recommendNext(tasks, minutes, localDate())
+  const [deferred, setDeferred] = useState<Task[]>([])
+  const skipButton = useRef<HTMLButtonElement>(null)
+  const available = tasks.filter((task) => !deferred.some(({ id }) => id === task.id))
+  const [first, ...alternatives] = recommendNext(available, minutes, localDate())
+  const lastDeferred = deferred.at(-1)
+  const skippedFits = recommendNext(deferred, minutes, localDate()).length > 0
 
   return (
-    <section className='showcase-panel'>
-      <p className='workspace-eyebrow'>Task recommendations</p>
-      <h1>What should I do next?</h1>
-      <p>Pick how much time you have. Eris shows up to three tasks that fit, ordered by deadline and priority.</p>
-      <TextField
-        select
-        id='next-action-time'
-        label='Time available'
-        value={minutes}
-        onChange={(event) => setMinutes(Number(event.target.value))}
-        sx={{ minWidth: 170, mt: 1, mb: 3 }}
-      >
-        {timeOptions.map((option) => <MenuItem key={option} value={option}>{option} minutes</MenuItem>)}
-      </TextField>
+    <section className='next-page'>
+      <header className='next-header'>
+        <h1>What should I do next?</h1>
+        <Link to='/view-tasks'>View demo tasks</Link>
+      </header>
 
-      <div aria-live='polite'>
-        {recommendations.length ? (
-          <Stack component='ol' spacing={1.5} sx={{ listStyle: 'none', padding: 0, margin: 0, maxWidth: 720 }}>
-            {recommendations.map(({ task, deadline }, index) => (
-              <Paper component='li' key={task.id} variant='outlined' sx={{ p: 2.5 }}>
-                <Stack direction='row' spacing={1.5} alignItems='baseline'>
-                  <Typography color='primary' aria-hidden='true'>{index + 1}.</Typography>
-                  <Typography component='h2' variant='h6'>{task.title}</Typography>
-                </Stack>
-                {task.description && <Typography color='text.secondary' sx={{ mt: 0.5 }}>{task.description}</Typography>}
-                <Stack direction='row' spacing={1} useFlexGap flexWrap='wrap' sx={{ mt: 1.5 }}>
-                  {deadline && <Chip size='small' color='primary' label={deadline} />}
-                  <Chip size='small' variant='outlined' label={task.priority + ' priority'} />
-                  <Chip size='small' variant='outlined' label={task.estimated_duration + ' min'} />
-                  {task.status === 'in_progress' && <Chip size='small' variant='outlined' label='In progress' />}
-                </Stack>
-              </Paper>
-            ))}
-          </Stack>
+      <fieldset className='next-time'>
+        <legend>How much time do you have?</legend>
+        <div className='next-time-options'>
+          {timeOptions.map((option) => (
+            <label key={option}>
+              <input
+                type='radio'
+                name='next-time'
+                checked={minutes === option}
+                onChange={() => setMinutes(option)}
+              />
+              <span>{option} min</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <div aria-live='polite' className='next-results'>
+        {first ? (
+          <article className='next-pick'>
+            <div className='next-pick-heading'>
+              <div>
+                <p className='next-kicker'>Start here</p>
+                <h2>{first.task.title}</h2>
+              </div>
+              <span className='next-duration'>{first.task.estimated_duration} min</span>
+            </div>
+            {first.task.description && <p>{first.task.description}</p>}
+            <p className='next-reason'>{taskDetails(first.task, first.deadline)} · Fits your {minutes}-minute window</p>
+          </article>
         ) : (
-          <p>No open tasks with a time estimate fit. Pick a longer window or <Link to='/tasks'>add a smaller task</Link>.</p>
+          <div className='next-pick'>
+            <h2>{skippedFits ? 'No more suggestions' : 'No tasks fit'} in {minutes} minutes</h2>
+            <p>{skippedFits ? 'Undo a skip, choose a longer window, or ' : 'Choose a longer window or '}
+              <Link to='/tasks'>add a task</Link> with a shorter estimate.
+            </p>
+          </div>
         )}
       </div>
-      <p><Link to='/view-tasks'>View the demo task list</Link></p>
+      <div className='next-feedback'>
+        <button
+          ref={skipButton}
+          type='button'
+          aria-disabled={!first}
+          onClick={() => {
+            if (first) setDeferred([...deferred, first.task])
+          }}
+        >Not now</button>
+        {lastDeferred && (
+          <>
+            <button type='button' onClick={() => {
+              skipButton.current?.focus()
+              setDeferred(deferred.slice(0, -1))
+            }}>Undo</button>
+            <span role='status'>Skipped {lastDeferred.title}.</span>
+          </>
+        )}
+      </div>
+      {alternatives.length > 0 && (
+        <section className='next-alternatives'>
+          <h2>Other options</h2>
+          <ul>
+            {alternatives.map(({ task, deadline }) => (
+              <li key={task.id}>
+                <div>
+                  <h3>{task.title}</h3>
+                  <p>{taskDetails(task, deadline)}</p>
+                </div>
+                <span className='next-duration'>{task.estimated_duration} min</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </section>
   )
 }
