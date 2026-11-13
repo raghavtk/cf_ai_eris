@@ -57,7 +57,6 @@
 .task-database th,
 .task-database td {
   padding: .65rem .8rem;
-  border-bottom: 1px solid var(--task-line);
   text-align: left;
   white-space: nowrap;
 }
@@ -69,7 +68,6 @@
   background: color-mix(in srgb, var(--task-surface) 70%, transparent);
 }
 
-.task-database tr:last-child td { border-bottom: 0; }
 .task-database tbody tr:hover,
 .task-database tr[data-selected='true'] { background: color-mix(in srgb, var(--task-accent) 8%, transparent); }
 
@@ -174,15 +172,6 @@
     color: var(--task-muted);
     font-size: .75rem;
   }
-}
-
-.task-database th:not(:last-child),
-.task-database td:not(:last-child) {
-  border-inline-end: 1px solid color-mix(in srgb, var(--task-line) 65%, transparent);
-}
-
-.task-database tbody + tbody tr:first-child th {
-  border-top: 1px solid var(--task-line);
 }
 
 .task-database .task-group-heading th {
