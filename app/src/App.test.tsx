@@ -12,6 +12,19 @@ describe('Eris workspace', () => {
   beforeEach(() => localStorage.clear())
   afterEach(() => vi.restoreAllMocks())
 
+  it('creates a task from the redesigned form and opens it from the task table', async () => {
+    const request = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected request'))
+    openWorkspace('/tasks')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Outline the project brief' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Estimate (minutes)' }), { target: { value: '25' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }))
+    expect(await screen.findByText(/Task created/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'View tasks', exact: true }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Outline the project brief' }))
+    expect(screen.getByRole('dialog')).toHaveTextContent('25 min')
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it('lets a signed-out visitor parse, save, and plan with demo tasks using only the public AI endpoint', async () => {
     const request = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ parsed: { title: 'Draft the portfolio case study', estimated_duration: 90 } }))
     const workspace = openWorkspace()
@@ -29,15 +42,15 @@ describe('Eris workspace', () => {
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Task prompt' }), { key: 'Escape' })
 
     fireEvent.click(await screen.findByRole('link', { name: 'View Tasks' }))
-    expect(await screen.findByRole('cell', { name: 'Draft the portfolio case study' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Draft the portfolio case study' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('link', { name: 'Schedule' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Plan my day' }))
     expect(await screen.findByText('Draft the portfolio case study')).toBeInTheDocument()
 
     workspace.unmount()
     openWorkspace('/view-tasks')
-    expect(screen.getByRole('cell', { name: 'Review research notes' })).toBeInTheDocument()
-    expect(screen.queryByRole('cell', { name: 'Draft the portfolio case study' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Review research notes' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Draft the portfolio case study' })).toBeNull()
     expect(request).toHaveBeenCalledExactlyOnceWith('/api/demo/parse-task', expect.objectContaining({
       method: 'POST', credentials: 'omit', body: JSON.stringify({ input: 'Draft the portfolio case study in 90 minutes' }),
     }))
@@ -95,7 +108,7 @@ describe('Eris workspace', () => {
     })
     openWorkspace('/?access=granted')
     expect(screen.getByLabelText('Demo workspace')).toBeInTheDocument()
-    expect(await screen.findByRole('cell', { name: 'Owner-only task' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Owner-only task' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Demo workspace')).toBeNull()
     expect(request).toHaveBeenCalledWith(expect.stringContaining('/api/auth/session'), expect.objectContaining({ credentials: 'include' }))
     expect(window.location.search).toBe('')
@@ -105,7 +118,7 @@ describe('Eris workspace', () => {
     const request = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ authenticated: false }))
     openWorkspace('/view-tasks?access=granted')
     expect(await screen.findByText(/Owner access could not be verified/)).toBeInTheDocument()
-    expect(screen.getByRole('cell', { name: 'Review research notes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Review research notes' })).toBeInTheDocument()
     expect(request).toHaveBeenCalledTimes(1)
     expect(request).toHaveBeenCalledWith(expect.stringContaining('/api/auth/session'), expect.anything())
   })
@@ -118,6 +131,6 @@ describe('Eris workspace', () => {
     )
     openWorkspace('/?access=granted')
     expect(await screen.findByText(/Owner access could not be verified/)).toBeInTheDocument()
-    expect(screen.getByRole('cell', { name: 'Review research notes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Review research notes' })).toBeInTheDocument()
   })
 })

@@ -1,4 +1,4 @@
-# Eris – Personal Productivity Assistant
+# Eris Personal Productivity Assistant
 
 Eris is a personal productivity assistant built on Cloudflare. It combines a React UI with a Cloudflare Worker + D1 database and Workers AI to parse natural language, enrich tasks, and keep everything in sync.
 
