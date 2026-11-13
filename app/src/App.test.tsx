@@ -43,6 +43,28 @@ describe('Eris workspace', () => {
     }))
   })
 
+  it('recommends tasks that fit the selected time without an API request', () => {
+    const request = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected request'))
+    openWorkspace('/next')
+    expect(screen.getByRole('heading', { name: 'What should I do next?' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review research notes' })).toBeInTheDocument()
+    expect(screen.getByText(/Due today/)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Prototype the dashboard' })).toBeNull()
+
+    expect(screen.getByRole('radio', { name: '30 min' })).toBeChecked()
+    fireEvent.click(screen.getByRole('radio', { name: '15 min' }))
+    expect(screen.getByRole('radio', { name: '15 min' })).toBeChecked()
+    expect(screen.queryByRole('heading', { name: 'Other options' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Review research notes' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Write the weekly recap' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(screen.getByRole('heading', { name: 'No more suggestions in 15 minutes' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(screen.getByRole('heading', { name: 'Write the weekly recap' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Not now' })).toHaveFocus()
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it('uses and labels the local parser when the daily budget is exhausted', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ code: 'demo_daily_limit' }, { status: 429 }))
     openWorkspace()

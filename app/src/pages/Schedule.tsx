@@ -6,12 +6,8 @@ import type { ScheduleEntry, Task } from '../../../shared/contracts'
 import { scheduleService } from '../services/scheduleService'
 import { buildDailyPlan } from '../../../shared/scheduler'
 import ScheduleTimeline from '../components/ScheduleTimeline'
+import { localDate } from '../localDate'
 import './Schedule.css'
-
-const localDate = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
 
 export default function Schedule({ demoTasks }: { demoTasks?: Task[] }) {
   const [date, setDate] = useState(localDate)
